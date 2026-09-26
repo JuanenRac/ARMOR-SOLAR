@@ -1,7 +1,7 @@
 # The messages of a gateway node (contract version 0)
 
-This is the shape the library produces (`core/solar_json.hpp`) and `tests/check_samples.py` checks. It is **not yet part of ARMOR-COMMON**: when the
-server starts to read it, the messages move into the shared contract with their schema and their conformance vectors, like the radar's.
+This is the shape the library produces (`core/solar_json.hpp`). The messages are part of ARMOR-COMMON (schemas `solar_inverter` and `solar_battery`, with
+conformance vectors), ARMOR-SERVER reads them, and `tests/check_samples.py` validates what this library prints against that contract.
 
 ```
 armor/solar/<node>/<device>/state        JSON, one message per device, every few seconds and on a change
@@ -30,5 +30,9 @@ armor/solar/<node>/<device>/state        JSON, one message per device, every few
  "stack":[{"n":1,"present":true,"voltage_v":49.872,"current_a":-1.28,"temperature_c":22.0,"soc_percent":88,"state":"Dischg"},{"n":2,"present":false}]}
 ```
 
+A module may also carry `cells_v` (the voltage of each cell, in order), `temperatures_c` (each temperature sensor), `capacity_ah` and `full_capacity_ah` (what is left
+and what the module holds when full), and `cycles`; the stack carries `model`, `capacity_ah`, `full_capacity_ah` (the sums of its modules), `energy_kwh` (the remaining
+energy at the mean voltage) and `cycles` (the highest of its modules). A field the battery did not report is left out.
+
 With no module present the message has `modules: 0` and the empty `stack`, and no other reading: the node says the battery does not answer instead of inventing numbers.
-`current_a` is the sum of the modules (negative discharging), `voltage_v` their mean, `soc_percent` the mean state of charge (null when unknown).
+`current_a` is the sum of the modules (negative discharging), `voltage_v` their mean, `soc_percent` the mean state of charge (left out when unknown: the contract has no nulls).

@@ -181,6 +181,71 @@ static void test_pylontech_frames() {
   CHECK(!pylontech::parse_frame(lower, parsed));
 }
 
+static const char* kBat =
+    "@\r\n"
+    "Battery  Volt     Curr     Tempr    Base State   Volt. State  Curr. State  Temp. State  Coulomb\r\n"
+    "0        3324     -1281    22000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "1        3325     -1281    22000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "2        3323     -1281    22000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "3        3330     -1281    22000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "4        3329     -1281    22000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "5        3326     -1281    22500    Dischg       Normal       Normal       Normal       88%\r\n"
+    "6        3327     -1281    22500    Dischg       Normal       Normal       Normal       88%\r\n"
+    "7        3325     -1281    22500    Dischg       Normal       Normal       Normal       88%\r\n"
+    "8        3324     -1281    22500    Dischg       Normal       Normal       Normal       88%\r\n"
+    "9        3348     -1281    22500    Dischg       Normal       Normal       Normal       88%\r\n"
+    "10       3326     -1281    23000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "11       3325     -1281    23000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "12       3324     -1281    23000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "13       3327     -1281    23000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "14       3326     -1281    23000    Dischg       Normal       Normal       Normal       88%\r\n"
+    "Command completed successfully\r\n$$\r\npylon>";
+
+static const char* kInfo =
+    "@\r\n"
+    "Device address      : 1\r\n"
+    "Manufacturer        : Pylon\r\n"
+    "Device name         : US3000C\r\n"
+    "Board version       : PHILTEC_BOARD_V2\r\n"
+    "Remain Capacity     : 65100 mAH\r\n"
+    "Total Capacity      : 74000 mAH\r\n"
+    "Cycle Times         : 312\r\n"
+    "Command completed successfully\r\n$$\r\npylon>";
+
+static void test_pylontech_cells_and_capacity() {
+  std::vector<double> cells;
+  CHECK(pylontech::parse_bat(kBat, cells) == 15);
+  CHECK(cells[0] == 3.324 && cells[9] == 3.348 && cells[14] == 3.326);
+  // a table with a gap, a cell out of range or nothing at all gives no cells
+  CHECK(pylontech::parse_bat("0 3324 0 0 A B C D 1%\r\n2 3324 0 0 A B C D 1%\r\n", cells) == 0);
+  CHECK(pylontech::parse_bat("0 99999 0 0 A B C D 1%\r\n", cells) == 0);
+  CHECK(pylontech::parse_bat("", cells) == 0 && pylontech::parse_bat("Command completed successfully", cells) == 0);
+  std::vector<pylontech::Module> modules;
+  pylontech::parse_pwr(kPwr, modules);
+  pylontech::parse_bat(kBat, cells);
+  CHECK(pylontech::attach_cells(modules, 1, cells) && modules[0].cells_v.size() == 15);
+  CHECK(!pylontech::attach_cells(modules, 3, cells) && !pylontech::attach_cells(modules, 9, cells));   // an absent module and one that is not there
+  // the console's `info`: the model, the remaining and the total capacity, the cycles
+  CHECK(pylontech::parse_info(kInfo, modules[0]) == 4);
+  CHECK(modules[0].model == "US3000C" && modules[0].capacity_ah == 65.1 && modules[0].full_capacity_ah == 74.0 && modules[0].cycles == 312);
+  pylontech::Module none;
+  CHECK(pylontech::parse_info("", none) == 0 && pylontech::parse_info("Remain Capacity : abc mAH\r\nCycle Times : -4\r\n", none) == 0 && none.capacity_ah < 0 && none.cycles < 0);
+  pylontech::Module ah;
+  CHECK(pylontech::parse_info("Remain Capacity : 50 Ah\r\n", ah) == 1 && ah.capacity_ah == 50.0);
+  // the second module has its own numbers; the stack adds the capacities (the modules are in parallel), takes the most used cycle count and the cells' extremes
+  pylontech::parse_info("Device name : US3000C\r\nRemain Capacity : 60000 mAH\r\nTotal Capacity : 74000 mAH\r\nCycle Times : 340\r\n", modules[1]);
+  const pylontech::Stack s = pylontech::summarise(modules);
+  CHECK(s.capacity_ah > 125.09 && s.capacity_ah < 125.11 && s.full_capacity_ah == 148.0 && s.cycles == 340 && s.model == "US3000C");
+  CHECK(s.energy_kwh > 6.2 && s.energy_kwh < 6.3);                     // 125.1 Ah at about 49.87 V
+  CHECK(s.cell_low_v == 3.323 && s.cell_high_v == 3.349);              // the cells' own lowest of module 1 (3.323) and the second module's Vhigh column (3.349)
+  const std::string json_text = battery_json("solar-1", "us3000-1", 5, modules);
+  armor::json::Value doc;
+  CHECK(armor::json::parse(json_text, doc) && doc.get("model")->text == "US3000C" && doc.get("cycles")->number == 340 && doc.get("full_capacity_ah")->number == 148.0);
+  const armor::json::Value* stack = doc.get("stack");
+  CHECK(stack != nullptr && stack->items.size() == 3 && stack->items[0].get("cells_v")->items.size() == 15 && stack->items[0].get("cycles")->number == 312);
+  CHECK(stack->items[1].get("cells_v") == nullptr && stack->items[2].get("cells_v") == nullptr);
+}
+
 static void test_messages() {
   CHECK(topic("perimetro-1", "axpert-1") == "armor/solar/perimetro-1/axpert-1/state");
   CHECK(topic("Bad", "x").empty() && topic("a", "").empty() && topic("a", "b/c").empty() && topic("-a", "b").empty() && topic("a", std::string(33, 'x')).empty());
@@ -207,6 +272,7 @@ int main() {
   test_voltronic_frames();
   test_pylontech_console();
   test_pylontech_frames();
+  test_pylontech_cells_and_capacity();
   test_messages();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

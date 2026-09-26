@@ -1,41 +1,37 @@
 #!/usr/bin/env python3
-"""Check the messages ARMOR-SOLAR's emit_samples prints: valid JSON, the naming rules, the fields of contract version 0.
+"""Check the messages ARMOR-SOLAR's emit_samples prints against ARMOR-COMMON's published contract.
 
 Usage:  emit_samples | python tests/check_samples.py
+
+Each line is a topic and a JSON payload. The firmware's serialiser is hand-written C++; this is the proof that what it prints is what the shared contract
+(schemas, topic rules, ranges) accepts.
 """
 import json
-import re
 import sys
+from pathlib import Path
 
-NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
-COMMON = {"kind", "node_id", "device", "timestamp_ms"}
-INVERTER = COMMON | {"mode", "grid_v", "grid_hz", "out_v", "out_hz", "out_va", "out_w", "load_percent", "battery_v", "battery_a", "battery_percent", "pv_v", "pv_a", "pv_w",
-                     "heatsink_c", "ac_charging", "pv_charging", "load_on", "warnings"}
-BATTERY_ALWAYS = COMMON | {"modules", "stack"}
-BATTERY_WITH_MODULES = BATTERY_ALWAYS | {"state", "voltage_v", "current_a", "temperature_min_c", "temperature_max_c", "cell_min_v", "cell_max_v", "soc_percent", "alarm"}
+COMMON = Path(__file__).resolve().parents[2] / "ARMOR-COMMON" / "src"
+sys.path.insert(0, str(COMMON))
+from armor_common import ContractError, validate_solar_message  # noqa: E402
 
 
 def main() -> int:
     checked = 0
+    kinds = set()
     for line in sys.stdin.read().splitlines():
-        kind, _, body = line.partition(" ")
-        message = json.loads(body)
-        if message["kind"] != kind or not NAME.match(message["node_id"]) or not NAME.match(message["device"]) or not isinstance(message["timestamp_ms"], int):
-            print("bad common fields:", line, file=sys.stderr)
+        topic, _, body = line.partition(" ")
+        payload = json.loads(body)
+        try:
+            validate_solar_message(topic, payload)
+        except ContractError as error:
+            print(f"{topic} violates the contract: {error}\n  {body}", file=sys.stderr)
             return 1
-        keys = set(message)
-        if kind == "inverter":
-            ok = keys == INVERTER and isinstance(message["warnings"], list) and all(isinstance(w, str) for w in message["warnings"])
-        else:
-            ok = keys == (BATTERY_WITH_MODULES if message["modules"] > 0 else BATTERY_ALWAYS) and isinstance(message["stack"], list)
-        if not ok:
-            print("unexpected fields:", sorted(keys), file=sys.stderr)
-            return 1
+        kinds.add(payload["kind"])
         checked += 1
-    if checked < 4:
-        print(f"expected 4 messages, got {checked}", file=sys.stderr)
+    if checked < 4 or kinds != {"inverter", "battery"}:
+        print(f"expected at least 4 messages of both kinds, got {checked} ({sorted(kinds)})", file=sys.stderr)
         return 1
-    print(f"SOLAR_MESSAGES=PASS {checked} messages well formed")
+    print(f"SOLAR_MESSAGES=PASS {checked} messages accepted by ARMOR-COMMON")
     return 0
 
 

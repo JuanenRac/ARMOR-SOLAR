@@ -51,22 +51,29 @@ inline std::string battery_json(const std::string& node_id, const std::string& d
   json::Writer w;
   w.begin_object().field("kind", "battery").field("node_id", node_id).field("device", device).key("timestamp_ms").integer(static_cast<long long>(timestamp_ms));
   w.field("modules", s.modules);
+  if (s.modules > 0 && !s.model.empty()) w.field("model", s.model);
   if (s.modules > 0) {
     w.field("state", s.state).key("voltage_v").number(s.voltage_v, 2).key("current_a").number(s.current_a, 2);
     w.key("temperature_min_c").number(s.temperature_min_c, 1).key("temperature_max_c").number(s.temperature_max_c, 1);
     w.key("cell_min_v").number(s.cell_low_v, 3).key("cell_max_v").number(s.cell_high_v, 3);
-    w.key("soc_percent");
-    if (s.soc_percent >= 0) w.integer(s.soc_percent); else w.null();
+    if (s.soc_percent >= 0) w.field("soc_percent", s.soc_percent);   // left out when unknown: the contract has no nulls
     w.field("alarm", s.alarm);
+    if (s.capacity_ah >= 0) w.key("capacity_ah").number(s.capacity_ah, 2);
+    if (s.full_capacity_ah >= 0) w.key("full_capacity_ah").number(s.full_capacity_ah, 2);
+    if (s.energy_kwh >= 0) w.key("energy_kwh").number(s.energy_kwh, 2);
+    if (s.cycles >= 0) w.field("cycles", s.cycles);
   }
   w.key("stack").begin_array();
   for (const pylontech::Module& m : modules) {
     w.begin_object().field("n", m.number).field("present", m.present);
     if (m.present) {
       w.key("voltage_v").number(m.voltage_v, 3).key("current_a").number(m.current_a, 3).key("temperature_c").number(m.temperature_c, 1);
-      w.key("soc_percent");
-      if (m.soc_percent >= 0) w.integer(m.soc_percent); else w.null();
+      if (m.soc_percent >= 0) w.field("soc_percent", m.soc_percent);
       w.field("state", m.base_state);
+      if (m.capacity_ah >= 0) w.key("capacity_ah").number(m.capacity_ah, 2);
+      if (m.full_capacity_ah >= 0) w.key("full_capacity_ah").number(m.full_capacity_ah, 2);
+      if (m.cycles >= 0) w.field("cycles", m.cycles);
+      if (!m.cells_v.empty()) { w.key("cells_v").begin_array(); for (double v : m.cells_v) w.number(v, 3); w.end_array(); }
     }
     w.end_object();
   }

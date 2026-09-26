@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.2] - Cells, capacities and the messages in the shared contract
+
+- **Each cell of each module.** `bat <n>` is decoded into the voltage and temperature of every cell, and `info <n>` into the model, the remaining and the full capacity (mAh), the cycles and the state; a stack reports the sum of its capacities, its energy in kWh and its cycles.
+- **The messages are now part of ARMOR-COMMON** (schemas and conformance vectors), and the samples this library prints are validated against them.
+- Tests: 100 checks. Still not run against a real battery or inverter, and ANT-BMS is still missing.
+
 ## [0.0.1] - The protocols and the design
 
 - **Voltronic / MPP Solar inverters** (Axpert, PIP, InfiniSolar and clones), RS232 at 2400 baud: the frames with their CRC-16/XMODEM (and the rule for a CRC byte that would be a delimiter), a framer that finds replies in a byte stream, and the readings `QPIGS` (grid, output, battery, PV, status bits), `QMOD` (mode), `QPIWS` (warnings and faults by name) and `QPIRI` (ratings). Only reading commands can be built.
