@@ -1,8 +1,9 @@
-// ARMOR-SOLAR - the node's network: the Wi-Fi station and the Wi-Fi access point.
+// ARMOR-SOLAR - the node's network: the Ethernet port of the s3-eth board, the Wi-Fi station and the Wi-Fi access point.
 // Copyright (C) 2026 JuanenRac (Electro Hobby 3D). GPL-3.0-or-later.
 //
 // Nothing here has run on a board. The station joins the network of the settings and joins it again 3 seconds after any loss; the access point (the setup
-// one, or the one the settings ask for) has its own address range (192.168.4.x) and the node's own panel is on 192.168.4.1.
+// one, or the one the settings ask for) has its own address range (192.168.4.x) and the node's own panel is on 192.168.4.1. On the s3-eth board the Ethernet
+// port carries the node's address (DHCP or a fixed one); the access point is not bridged to it: it is a network of its own, for reaching the node from a phone.
 #include "network.hpp"
 
 #include <algorithm>
@@ -18,6 +19,9 @@ extern "C" {
 #include "esp_wifi.h"
 #include "sdkconfig.h"
 }
+#if defined(ARMOR_BOARD_S3_ETH)
+#include "board_ethernet.hpp"
+#endif
 #include "core/net_text.hpp"
 
 namespace armor::network {
@@ -28,6 +32,10 @@ std::mutex g_lock;
 Status g_status;
 netplan::Plan g_plan;
 config::Settings g_settings;
+esp_netif_t* g_ip_netif = nullptr;   // the interface that holds the node's address
+#if defined(ARMOR_BOARD_S3_ETH)
+esp_eth_handle_t g_eth = nullptr;
+#endif
 esp_timer_handle_t g_reconnect_timer = nullptr;
 bool g_wifi_running = false;   // the driver was started by start()
 std::mutex g_scan_lock;
@@ -74,6 +82,59 @@ void on_ip_lost(void*, esp_event_base_t, int32_t, void*) {
   g_status.has_ip = false;
   g_status.ip.clear();
 }
+
+#if defined(ARMOR_BOARD_S3_ETH)
+void on_eth_event(void*, esp_event_base_t, int32_t event_id, void*) {
+  switch (event_id) {
+    case ETHERNET_EVENT_CONNECTED: {
+      {
+        std::lock_guard<std::mutex> guard(g_lock);
+        g_status.link_up = true;
+      }
+      ESP_LOGI(kTag, "link up");
+      // A fixed address gets no DHCP event: it is usable as soon as the link is.
+      if (!g_settings.ip.dhcp && g_settings.uplink == config::Uplink::kEthernet) refresh_ip(g_ip_netif);
+      break;
+    }
+    case ETHERNET_EVENT_DISCONNECTED: {
+      std::lock_guard<std::mutex> guard(g_lock);
+      g_status.link_up = false;
+      g_status.has_ip = false;
+      ESP_LOGW(kTag, "link down (cable, switch or PoE injector)");
+      break;
+    }
+    case ETHERNET_EVENT_START: ESP_LOGI(kTag, "Ethernet driver started, waiting for the link"); break;
+    default: break;
+  }
+}
+
+// The name, and either DHCP or the fixed address, mask, gateway and DNS of the settings.
+void apply_ip(esp_netif_t* netif, const config::Settings& s, const std::string& hostname) {
+  esp_netif_set_hostname(netif, hostname.c_str());
+  if (s.ip.dhcp || s.uplink != config::Uplink::kEthernet) return;
+  esp_netif_ip_info_t info{};
+  std::uint32_t address = 0, mask = 0, gateway = 0;
+  if (!net::parse_ipv4(s.ip.address, address) || !net::parse_ipv4(s.ip.netmask, mask) || !net::parse_ipv4(s.ip.gateway, gateway)) {
+    ESP_LOGE(kTag, "the fixed address, mask or gateway in the settings is not valid: asking for an address by DHCP instead");
+    return;
+  }
+  info.ip.addr = esp_netif_htonl(address);
+  info.netmask.addr = esp_netif_htonl(mask);
+  info.gw.addr = esp_netif_htonl(gateway);
+  ESP_ERROR_CHECK(esp_netif_dhcpc_stop(netif));
+  ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &info));
+  const std::string servers[2] = {s.ip.dns1.empty() ? s.ip.gateway : s.ip.dns1, s.ip.dns2};
+  const esp_netif_dns_type_t kinds[2] = {ESP_NETIF_DNS_MAIN, ESP_NETIF_DNS_BACKUP};
+  for (int i = 0; i < 2; ++i) {
+    std::uint32_t value = 0;
+    if (servers[i].empty() || !net::parse_ipv4(servers[i], value)) continue;
+    esp_netif_dns_info_t dns{};
+    dns.ip.type = ESP_IPADDR_TYPE_V4;
+    dns.ip.u_addr.ip4.addr = esp_netif_htonl(value);
+    esp_netif_set_dns_info(netif, kinds[i], &dns);
+  }
+}
+#endif
 
 void reconnect_station(void*) { esp_wifi_connect(); }
 
@@ -175,14 +236,21 @@ bool start(const config::Settings& s, const netplan::Plan& plan) {
   g_status.ap_setup = plan.ap.setup;
   g_status.ap_ssid = plan.ap.ssid;
   g_status.ap_channel = plan.ap.enabled ? plan.ap.channel : 0;
+  g_status.ethernet_available = board::kHasEthernet;
+  g_status.board = board::kId;
   std::uint8_t mac[6]{};
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  esp_read_mac(mac, plan.wired ? ESP_MAC_ETH : ESP_MAC_WIFI_STA);
   g_status.mac = mac_text(mac);
 
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &on_wifi_event, nullptr));
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_ip_event, nullptr));
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP, &on_ip_lost, nullptr));
+#if defined(ARMOR_BOARD_S3_ETH)
+  ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &on_eth_event, nullptr));
+  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &on_ip_event, nullptr));
+  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_LOST_IP, &on_ip_lost, nullptr));
+#endif
 
   if (plan.station) {
     esp_timer_create_args_t timer{};
@@ -190,15 +258,37 @@ bool start(const config::Settings& s, const netplan::Plan& plan) {
     timer.name = "wifi-reconnect";
     esp_timer_create(&timer, &g_reconnect_timer);
   }
+#if defined(ARMOR_BOARD_S3_ETH)
+  if (plan.wired) {
+    g_eth = ethernet_driver_create();
+    if (g_eth == nullptr) {
+      g_status.ethernet_ok = false;
+      if (!plan.ap.enabled) return false;   // no cable and no access point: nothing to reach the node by
+    } else {
+      esp_netif_config_t eth_config = ESP_NETIF_DEFAULT_ETH();
+      esp_netif_t* eth_netif = esp_netif_new(&eth_config);
+      ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(g_eth)));
+      g_ip_netif = eth_netif;
+      apply_ip(eth_netif, s, plan.hostname);
+    }
+  }
+#endif
+  const bool wifi = plan.ap.enabled || plan.station;
   if (plan.ap.enabled) esp_netif_create_default_wifi_ap();
   if (plan.station) {
     esp_netif_t* sta_netif = esp_netif_create_default_wifi_sta();
     esp_netif_set_hostname(sta_netif, plan.hostname.c_str());
+    g_ip_netif = sta_netif;
   }
-  if (!wifi_setup(s, plan)) return false;
-  ESP_ERROR_CHECK(esp_wifi_start());
-  wifi_tune(plan);
-  g_wifi_running = true;
+  if (wifi && !wifi_setup(s, plan)) return false;
+#if defined(ARMOR_BOARD_S3_ETH)
+  if (g_eth != nullptr) ESP_ERROR_CHECK(esp_eth_start(g_eth));
+#endif
+  if (wifi) {
+    ESP_ERROR_CHECK(esp_wifi_start());
+    wifi_tune(plan);
+    g_wifi_running = true;
+  }
   return true;
 }
 

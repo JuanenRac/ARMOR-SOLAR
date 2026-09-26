@@ -49,6 +49,7 @@ static void test_defaults_and_pins() {
   CHECK(s.node_id == "solar-a1b2c3" && s.ports.size() == 10 && !s.ports[0].enabled);
   CHECK(s.ports[0].rx == 16 && s.ports[0].tx == 15 && s.ports[0].de == 7 && s.ports[6].rx == 21 && s.ports[6].tx == 47 && s.ports[3].de == -1);
   CHECK(s.ports[9].rx == 42 && s.ports[9].tx == 1 && board::kHardwarePorts + board::kSoftPorts == board::kPortCount && board::kSoftPorts == 7);
+  CHECK(!board::kHasEthernet && std::string(board::kId) == "s3-wifi" && s.uplink == config::Uplink::kWifi && s.ip.dhcp);
   // a node with no Wi-Fi at all could not be reached: the defaults are not valid until one of the two is on
   CHECK(has(config::validate(s), "sta.enabled", "required"));
   CHECK(config::validate(valid_settings()).empty());
@@ -96,6 +97,20 @@ static void test_ports() {
   CHECK(config::validate(s).empty() && config::effective_baud(s.ports[6]) == 19200 && config::effective_poll_s(s.ports[6]) == 5);
   s.ports[6].baud = 38400;
   CHECK(has(config::validate(s), "ports.6.baud", "too_fast_for_emulated"));
+}
+
+static void test_wifi_board_has_no_ethernet() {
+  config::Settings s = valid_settings();
+  s.uplink = config::Uplink::kEthernet;
+  CHECK(has(config::validate(s), "uplink", "not_available"));
+  netplan::Plan plan = netplan::plan_network(s, false, "", "a1b2c3", 5);
+  CHECK(!plan.wired && plan.layout == netplan::Layout::kStation);   // a stored "ethernet" on a board without a cable still comes up on Wi-Fi
+  config::Settings back;
+  config::Problems problems;
+  CHECK(!config::load("{\"uplink\":\"ethernet\"}", valid_settings(), back, problems) && has(problems, "uplink", "not_available"));
+  CHECK(config::to_json(valid_settings(), false).find("\"uplink\":\"wifi\"") != std::string::npos);
+  // the pins of the two boards differ where the W5500 sits: on this board GPIO 9 to 14 and 8 are free for a port
+  for (int gpio = 8; gpio <= 14; ++gpio) CHECK(board::assignable(gpio));
 }
 
 static void test_settings_document() {
@@ -535,6 +550,7 @@ int main() {
   test_defaults_and_pins();
   test_ports();
   test_ten_ports();
+  test_wifi_board_has_no_ethernet();
   test_settings_document();
   test_network_plan();
   test_soft_uart();

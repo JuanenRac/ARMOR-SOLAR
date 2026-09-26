@@ -2,8 +2,8 @@
 
 A gateway node is an ESP32 that talks to inverters and batteries over their serial ports and publishes what they say to A.R.M.O.R.'s broker. It is
 the same idea as ARMOR-RADAR's field nodes, and the plan is the same firmware family: one image for every board, told apart by its MAC, with its own
-web panel, users, updates over the air, and the panel over HTTPS. The firmware for the **Wi-Fi-only ESP32-S3 N16R8 board** is built (see `NODE_FIRMWARE.md`: its seven
-serial ports, its first start and its bench checklist) and has never run on a board; the Ethernet board is still only a design.
+web panel, users, updates over the air, and the panel over HTTPS. The firmware for **both boards** (the Wi-Fi-only ESP32-S3 N16R8 and the Waveshare ESP32-S3-ETH with Ethernet) is built (see `NODE_FIRMWARE.md`: its ten
+serial ports, its first start and its bench checklist) and has never run on a board.
 
 ## One board or two kinds
 

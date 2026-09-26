@@ -17,6 +17,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const panel = path.join(here, "..", "panel");
 const port = Number(process.argv.find(a => /^\d+$/.test(a)) ?? 8090);
+// --board s3-eth: the mock plays the Waveshare ESP32-S3-ETH (a cable, the W5500 pins reserved); the default is the s3-wifi board
+const board = process.argv.includes("--board") ? process.argv[process.argv.indexOf("--board") + 1] : "s3-wifi";
+const wired = board === "s3-eth";
 const seeded = process.argv.includes("--user") ? process.argv[process.argv.indexOf("--user") + 1] : "";
 
 const users = new Map();
@@ -28,6 +31,7 @@ let logText = "I (1200) armor-node: A.R.M.O.R. node armor-a1b2c3, firmware 0.2.3
 
 const config = {
   v: 1, node: { id: "solar-a1b2c3", name: "Solar house", hostname: "" },
+  uplink: wired ? "ethernet" : "wifi", ip: { dhcp: true, address: "", netmask: "255.255.255.0", gateway: "", dns1: "", dns2: "" },
   ap: { enabled: true, ssid: "ARMOR-SOLAR-A1B2C3", security: "wpa2", password_set: true, channel: 0, hidden: false, max_clients: 8, tx_power_dbm: 15, bandwidth_mhz: 20, country: "ES" },
   sta: { enabled: true, ssid: "HomeRouter", password_set: true },
   mqtt: { enabled: true, uri: "mqtt://192.168.0.180:18883", username: "solar-node-solar-a1b2c3", password_set: true, heartbeat_s: 10, ntp: "pool.ntp.org" },
@@ -52,6 +56,9 @@ for (let gpio = 0; gpio <= 48; ++gpio) {
   if (gpio >= 22 && gpio <= 25) continue;
   let use = "free", reason = "", note = "", header = true;
   if (gpio >= 26 && gpio <= 32) { use = "reserved"; reason = "flash"; header = false; }
+  else if (wired && gpio >= 9 && gpio <= 14) { use = "reserved"; reason = "ethernet"; header = false; }
+  else if (wired && gpio === 8) { use = "reserved"; reason = "camera"; header = false; }
+  else if (wired && gpio >= 4 && gpio <= 7) { use = "caution"; note = "sdcard"; }
   else if (gpio >= 33 && gpio <= 37) { use = "reserved"; reason = "psram"; header = gpio >= 35; }
   else if (gpio === 19 || gpio === 20) { use = "reserved"; reason = "usb"; }
   else if (gpio === 0) { use = "caution"; note = "boot"; }
@@ -83,7 +90,7 @@ const tokenOf = request => /armor_session=([0-9a-f]+)/.exec(request.headers.cook
 function status() {
   return {
     node_id: config.node.id, name: config.node.name, version: "0.0.3", uptime_s: Math.floor((Date.now() - started) / 1000) + 5400, reset_reason: "power_on", heap_free: 182000, heap_min: 151000, psram_free: 7400000, partition: "ota_0",
-    network: { layout: "wifi-station+ap", link_up: true, has_ip: true, ip: "192.168.0.181", netmask: "255.255.255.0", gateway: "192.168.0.1", dns: "192.168.0.1", mac: "34:85:18:a1:b2:c3",
+    network: { board, ethernet_available: wired, ethernet_ok: true, layout: wired ? "ethernet+ap" : "wifi-station+ap", link_up: true, has_ip: true, ip: "192.168.0.181", netmask: "255.255.255.0", gateway: "192.168.0.1", dns: "192.168.0.1", mac: "34:85:18:a1:b2:c3",
       ap_active: config.ap.enabled, ap_setup: users.size === 0, ap_ssid: users.size === 0 ? "ARMOR-SETUP-A1B2C3" : config.ap.ssid, ap_channel: 6, ap_clients: 1, sta_connected: true, sta_ssid: config.sta.ssid, sta_rssi: -52 },
     mqtt: { enabled: config.mqtt.enabled, connected: true, clock_set: true, published: 400 + Math.floor((Date.now() - started) / 5000), dropped: 0 },
     web: { mode: config.web.mode, https: config.web.mode !== "http", cert_sha256: "a3f1c07d9e2b4c58a7106f3de9b2c4815d6e7f80a1b2c3d4e5f60718293a4b5c" },
@@ -114,7 +121,7 @@ const server = createServer(async (request, response) => {
   const session = sessions.get(tokenOf(request));
   const setup = users.size === 0;
 
-  if (method === "GET" && route === "session") return json(response, 200, { setup, authenticated: !!session, user: session?.user ?? "", role: session?.role ?? "", node_id: config.node.id, language: config.ui.language, version: "0.2.3", setup_ssid: setup ? "ARMOR-SETUP-A1B2C3" : "", mac: "34:85:18:a1:b2:c3" });
+  if (method === "GET" && route === "session") return json(response, 200, { setup, authenticated: !!session, user: session?.user ?? "", role: session?.role ?? "", node_id: config.node.id, language: config.ui.language, version: "0.2.3", setup_ssid: setup ? "ARMOR-SETUP-A1B2C3" : "", mac: "34:85:18:a1:b2:c3", board, ethernet: wired });
   if (method === "POST" && route === "setup") {
     if (!setup) return json(response, 403, { error: "forbidden" });
     if (body.code !== "TESTCODE") return json(response, 403, { error: "wrong_code" });

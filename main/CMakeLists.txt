@@ -1,8 +1,18 @@
-idf_component_register(SRCS "api_shared.cpp" "app_main.cpp" "entropy.cpp" "log_buffer.cpp" "mqtt_link.cpp" "network.cpp" "node_store.cpp" "solar_manager.cpp"
-                            "tls_cert.cpp" "uart_ports.cpp" "web_server.cpp"
+# The board profile (Kconfig, sdkconfig.board.<board>): the W5500 driver file is built only for the s3-eth board. The REQUIRES cannot depend on it: ESP-IDF reads them
+# before sdkconfig is loaded, so esp_eth and esp_driver_spi are always required (an unused component costs nothing in the image).
+set(ARMOR_SOURCES "api_shared.cpp" "app_main.cpp" "entropy.cpp" "log_buffer.cpp" "mqtt_link.cpp" "network.cpp" "node_store.cpp" "solar_manager.cpp"
+                  "tls_cert.cpp" "uart_ports.cpp" "web_server.cpp")
+set(ARMOR_REQUIRES driver esp_driver_gpio esp_driver_uart esp_driver_gptimer esp_event esp_netif esp_timer esp_wifi esp_http_server esp_https_server app_update
+                   esp_partition esp_app_format mbedtls bootloader_support mqtt nvs_flash lwip esp_hw_support esp_system heap log esp_eth esp_driver_spi)
+if(CONFIG_ARMOR_BOARD_S3_ETH)
+  list(APPEND ARMOR_SOURCES "board_ethernet.cpp")
+endif()
+idf_component_register(SRCS ${ARMOR_SOURCES}
                        INCLUDE_DIRS "." ".."
-                       REQUIRES driver esp_driver_gpio esp_driver_uart esp_driver_gptimer esp_event esp_netif esp_timer esp_wifi esp_http_server esp_https_server app_update
-                                esp_partition esp_app_format mbedtls bootloader_support mqtt nvs_flash lwip esp_hw_support esp_system heap log)
+                       REQUIRES ${ARMOR_REQUIRES})
+if(CONFIG_ARMOR_BOARD_S3_ETH)
+  target_compile_definitions(${COMPONENT_LIB} PRIVATE ARMOR_BOARD_S3_ETH=1)
+endif()
 
 # The web panel (panel/) is compressed at configure time and embedded in the firmware: an update of the firmware updates the panel.
 set(ARMOR_PANEL_DIR "${PROJECT_DIR}/panel")

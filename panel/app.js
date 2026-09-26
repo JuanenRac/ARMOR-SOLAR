@@ -193,6 +193,8 @@ function psPill(state) {
 const portErrorText = s => (s.state === "error" && L["pe_" + s.error] ? t("pe_" + s.error) : s.error && L["le_" + s.error] ? t("le_" + s.error) : s.error || "");
 const portLiveText = s => t("portCounters", s.bytes_rx, s.bytes_tx, s.replies_ok, s.replies_bad, s.timeouts, s.readings);
 
+const BOARD_NAMES = { "s3-wifi": "ESP32-S3-WROOM-1 N16R8", "s3-eth": "Waveshare ESP32-S3-ETH" };
+
 function overviewPage() {
   const s = S.status;
   if (!s) return el("p", { class: "muted" }, t("loading"));
@@ -202,7 +204,7 @@ function overviewPage() {
   return el("div", { class: "grid" },
     card(t("ovNode"), kv([[t("nodeId"), s.node_id], [t("nodeName"), s.name], [t("firmware"), s.version + " (" + s.partition + ")"], [t("uptime"), formatUptime(s.uptime_s)],
       [t("resetReason"), reasonText(s.reset_reason)], [t("memory"), Math.round(s.heap_free / 1024) + " kB" + (s.psram_free ? " + " + Math.round(s.psram_free / 1048576 * 10) / 10 + " MB PSRAM" : "")]])),
-    card(t("ovNetwork"), kv([[t("layout"), n.layout], [t("link"), n.link_up ? t("linkUp") : t("linkDown")], [t("address"), n.has_ip ? n.ip : "—"], [t("netmask"), n.netmask || "—"], [t("gateway"), n.gateway || "—"],
+    card(t("ovNetwork"), kv([[t("board"), BOARD_NAMES[n.board] || n.board || "—"], [t("layout"), n.layout], [t("link"), n.link_up ? t("linkUp") : t("linkDown")], [t("address"), n.has_ip ? n.ip : "—"], [t("netmask"), n.netmask || "—"], [t("gateway"), n.gateway || "—"],
       [t("dns"), n.dns || "—"], [t("mac"), n.mac],
       n.ap_active ? [t("apActive"), "“" + n.ap_ssid + "” · " + t("channel") + " " + n.ap_channel + " · " + n.ap_clients + " " + t("apClients") + " · " + layoutNote] : null,
       n.sta_ssid ? [t("station"), n.sta_ssid + (n.sta_connected ? " · " + n.sta_rssi + " dBm" : " · " + t("notConnected"))] : null])),
@@ -212,9 +214,19 @@ function overviewPage() {
       el("p", { class: "muted" }, t("kind_" + p.kind).split(" (")[0] + " · " + p.baud + " · " + portLiveText(p))))) : el("p", { class: "muted" }, t("noPorts"))));
 }
 
+const hasEthernet = () => !!(S.session && S.session.ethernet);
+const isWired = () => hasEthernet() && S.cfg.uplink === "ethernet";
+
 function networkPage() {
+  const cfg = S.cfg, wired = isWired();
   return el("div", { class: "grid wide" },
-    card(t("netTitle"), field("hostname", "node.hostname", { hint: t("hostnameHint") }), field("nodeName", "node.name"), field("nodeId", "node.id"), note(t("netRestartNote"), "info")),
+    hasEthernet() ? card(t("netTitle"),
+      field("uplink", "uplink", { type: "select", rerender: true, options: [["ethernet", t("uplinkEthernet")], ["wifi", t("uplinkWifi")]] }),
+      wired ? field("dhcp", "ip.dhcp", { type: "checkbox", rerender: true }) : null,
+      wired && !cfg.ip.dhcp ? el("div", { class: "row" }, field("address", "ip.address"), field("netmask", "ip.netmask"), field("gateway", "ip.gateway"), field("dns1", "ip.dns1"), field("dns2", "ip.dns2")) : null,
+      S.status && S.status.network && S.status.network.ethernet_ok === false ? note(t("ethernetMissing"), "bad") : null,
+      note(t("wiredNote"), "info")) : null,
+    card(t("nodeTitle"), field("hostname", "node.hostname", { hint: t("hostnameHint") }), field("nodeName", "node.name"), field("nodeId", "node.id"), note(t("netRestartNote"), "info")),
     card(t("webTitle"), field("webMode", "web.mode", { type: "select", options: [["both", t("webBoth")], ["https", t("webHttps")], ["http", t("webHttp")]] }),
       S.status && S.status.web ? el("p", { class: "muted" }, t(S.status.web.https ? "webRunning" : "webNotRunning")) : null,
       S.status && S.status.web && S.status.web.cert_sha256 ? el("p", { class: "muted mono" }, t("webFingerprint") + ": " + S.status.web.cert_sha256) : null, note(t("webNote"), "info")));
@@ -254,7 +266,7 @@ function wifiPage() {
           field("bandwidth", "ap.bandwidth_mhz", { type: "select", number: true, options: [[20, t("bw20")], [40, t("bw40")]] }), field("country", "ap.country", { max: 2 })),
         field("hidden", "ap.hidden", { type: "checkbox" }),
         note(t("noWifiWarn"), "info")] : null),
-    card(t("wifiSta"), field("staEnable", "sta.enabled", { type: "checkbox", rerender: true }),
+    isWired() ? null : card(t("wifiSta"), field("staEnable", "sta.enabled", { type: "checkbox", rerender: true }),
       cfg.sta.enabled ? [el("div", { class: "row" }, field("ssid", "sta.ssid", { max: 32 }), field("wifiPassword", "sta.password", { type: "password" }))] : null,
       el("div", { class: "actions" }, el("button", { class: "b", disabled: !isAdmin() || S.scan.busy, onclick: scanNetworks }, t("scanNetworks"))), scanResults(),
       el("p", { class: "hint" }, t("scanNote")), note(t("staNote"), "info")));
@@ -556,9 +568,10 @@ function setupScreen() {
     el("label", { class: "field" }, el("span", {}, t("setupCode")), el("input", { autocomplete: "off", autocapitalize: "characters", oninput: e => { form.code = e.target.value.trim().toUpperCase(); } })),
     el("label", { class: "field" }, el("span", {}, t("adminName")), el("input", { value: "admin", autocomplete: "username", oninput: e => { form.user = e.target.value; } })),
     el("label", { class: "field" }, el("span", {}, t("newPassword")), el("input", { type: "password", autocomplete: "new-password", oninput: e => { form.password = e.target.value; } })),
-    el("h3", {}, t("setupWifiTitle")), el("p", { class: "hint" }, t("setupWifiHelp")),
-    el("label", { class: "field" }, el("span", {}, t("ssid")), el("input", { autocomplete: "off", maxLength: 32, oninput: e => { form.wifi_ssid = e.target.value; } })),
-    el("label", { class: "field" }, el("span", {}, t("wifiPassword")), el("input", { type: "password", autocomplete: "off", oninput: e => { form.wifi_password = e.target.value; } })),
+    ...(hasEthernet() ? [el("p", { class: "hint" }, t("setupEthHelp"))] : [
+      el("h3", {}, t("setupWifiTitle")), el("p", { class: "hint" }, t("setupWifiHelp")),
+      el("label", { class: "field" }, el("span", {}, t("ssid")), el("input", { autocomplete: "off", maxLength: 32, oninput: e => { form.wifi_ssid = e.target.value; } })),
+      el("label", { class: "field" }, el("span", {}, t("wifiPassword")), el("input", { type: "password", autocomplete: "off", oninput: e => { form.wifi_password = e.target.value; } }))]),
     message, el("button", { class: "b primary", type: "submit" }, t("createAdmin")), langPicker()));
 }
 

@@ -25,13 +25,14 @@
 
 ---
 
-**Controllo di onestà - cosa funziona oggi:** **Maturità: scaffolding.** Il firmware si compila nel container ESP-IDF 5.4.2, il suo nucleo (le impostazioni, lo scambio con ogni tipo di dispositivo, l'aritmetica dell'UART emulata: 254 controlli) è testato su computer con dispositivi simulati, i messaggi che produce sono accettati da ARMOR-COMMON e il pannello è stato provato in un browser contro un nodo simulato. **Non ha mai girato su una scheda e nessun inverter o batteria è stato collegato**: il Wi-Fi, il pannello con TLS, l'aggiornamento, le UART hardware ed emulate e i formati dei protocolli (scritti da documenti pubblici e a memoria) non sono mai stati provati. I frame ANT-BMS dei test sono stati catturati da altri sui loro apparecchi: questo progetto non ne ha letto nessuno di persona.
+**Controllo di onestà - cosa funziona oggi:** **Maturità: scaffolding.** Il firmware si compila nel container ESP-IDF 5.4.2, il suo nucleo (le impostazioni, lo scambio con ogni tipo di dispositivo, l'aritmetica dell'UART emulata: 349 controlli) è testato su computer con dispositivi simulati, i messaggi che produce sono accettati da ARMOR-COMMON e il pannello è stato provato in un browser contro un nodo simulato. **Non ha mai girato su una scheda e nessun inverter o batteria è stato collegato**: il Wi-Fi, il pannello con TLS, l'aggiornamento, le UART hardware ed emulate e i formati dei protocolli (scritti da documenti pubblici e a memoria) non sono mai stati provati. I frame ANT-BMS dei test sono stati catturati da altri sui loro apparecchi: questo progetto non ne ha letto nessuno di persona.
 
 ---
 
 ## 🎯 Panoramica
 
-* **Il firmware del nodo** (ESP32-S3-WROOM-1 N16R8, solo Wi-Fi): dieci porte seriali, tre UART hardware e sette emulate (fino a 19200 baud), ognuna indipendente e ognuna legge un inverter, una batteria o un monitor grezzo, così un nodo può leggere solo inverter, solo batterie o un misto.
+* **Due schede, un solo firmware:** una ESP32-S3-WROOM-1 N16R8 via Wi-Fi (predefinita) e la Waveshare ESP32-S3-ETH sul suo cavo Ethernet (DHCP o indirizzo fisso; tiene la propria rete Wi-Fi per raggiungerla da un telefono). L'immagine si sceglie in compilazione (`tools/build_node.sh generic s3-wifi` o `generic s3-eth`); la tabella dei pin, i pin predefiniti delle porte e l'accesso seguono la scheda, e un'immagine vale solo per la sua scheda. Entrambe compilano e sono testate sul computer; nessuna ha girato su una scheda.
+* **Il firmware del nodo** (ESP32-S3-WROOM-1 N16R8 via Wi-Fi, o Waveshare ESP32-S3-ETH via cavo): dieci porte seriali, tre UART hardware e sette emulate (fino a 19200 baud), ognuna indipendente e ognuna legge un inverter, una batteria o un monitor grezzo, così un nodo può leggere solo inverter, solo batterie o un misto.
 * **Il pannello web del nodo,** lo stesso dei nodi radar: configurazione con un codice mostrato sulla console USB, accesso e utenti, Wi-Fi (stazione e punto di accesso), broker, aggiornamento via radio con ripristino, registro, HTTPS, e le pagine delle porte (con ciò che ognuna sente, per protocolli non ancora decodificati) e delle letture, in sette lingue.
 * **Inverter Voltronic / MPP Solar** (Axpert, PIP, InfiniSolar e cloni), RS232 a 2400 baud: i frame e il loro CRC, e le letture `QPIGS` (rete, uscita, batteria, FV, bit di stato), `QMOD` (modo), `QPIWS` (avvisi e guasti per nome) e `QPIRI` (valori nominali). Si possono costruire solo comandi di lettura: un'impostazione cambia come viene alimentata la casa.
 * **Batterie Pylontech** (US2000, US3000, US5000): la tabella `pwr` della console (tensione, corrente, temperature e stato di carica di ogni modulo), `bat <n>` (tensione e temperatura di ogni cella) e `info <n>` (modello, capacità residua e totale, cicli), riassunte come un unico pacco con capacità ed energia totali, e il frame RS485 con i suoi due controlli. I formati sono scritti a memoria dalla console pubblica e possono variare tra i firmware.
@@ -55,9 +56,10 @@ ARMOR-SOLAR/
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar && build/host/test_node      # 199 checks, -Werror
+build/host/test_solar && build/host/test_node && build/host/test_board_eth      # 349 checks, -Werror
 build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
-tools/build_node.sh generic                       # the firmware image in the ESP-IDF container: dist/generic.bin
+tools/build_node.sh generic                       # the firmware image for the N16R8 board in the ESP-IDF container: dist/generic-s3-wifi.bin
+tools/build_node.sh generic s3-eth               # the same firmware for the Waveshare ESP32-S3-ETH (Ethernet): dist/generic-s3-eth.bin
 node tools/panel_mock.mjs --user admin:adminpass123   # the panel without a board
 ```
 

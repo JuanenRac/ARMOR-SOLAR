@@ -1,11 +1,14 @@
 // ARMOR-SOLAR - decides how the node's Wi-Fi is built from its settings: a station, an access point, both, or the setup access point.
 // Copyright (C) 2026 JuanenRac (Electro Hobby 3D). GPL-3.0-or-later.
 //
-// The node has no cable, so Wi-Fi is its only way in:
+// The layouts:
 //   kSetupAp           a node that has no user yet opens the access point "ARMOR-SETUP-xxxxxx", protected with the setup code, and nothing else
-//   kStation           the node joins an existing network
+//                      (on the s3-eth board the cable works too: it is set up from either)
+//   kStation           the node joins an existing network (the s3-wifi board's normal way in)
 //   kStationWithAp     a station and an access point at once (the access point follows the station's channel)
 //   kAccessPoint       only its own access point (a node in a place with no network of its own)
+//   kEthernet          the s3-eth board on its cable, with DHCP or a fixed address; no Wi-Fi at all
+//   kEthernetWithAp    the cable, and an access point of its own (192.168.4.x, the node's panel is on 192.168.4.1) to reach the node from a phone
 #pragma once
 #include <string>
 #include <string_view>
@@ -14,7 +17,7 @@
 
 namespace armor::netplan {
 
-enum class Layout { kSetupAp, kStation, kStationWithAp, kAccessPoint };
+enum class Layout { kSetupAp, kStation, kStationWithAp, kAccessPoint, kEthernet, kEthernetWithAp };
 
 struct AccessPointPlan {
   bool enabled = false;
@@ -31,6 +34,7 @@ struct AccessPointPlan {
 struct Plan {
   Layout layout = Layout::kStation;
   bool station = false;
+  bool wired = false;   // the Ethernet port is up (a node that is being set up on the s3-eth board is wired too)
   AccessPointPlan ap;
   std::string hostname;
 };
@@ -55,6 +59,8 @@ inline Plan plan_network(const config::Settings& s, bool setup_mode, std::string
   Plan plan;
   plan.hostname = hostname_for(s);
   AccessPointPlan& ap = plan.ap;
+  const bool wired = board::kHasEthernet && s.uplink == config::Uplink::kEthernet;
+  plan.wired = wired;
   if (setup_mode) {
     ap.enabled = true;
     ap.setup = true;
@@ -63,7 +69,7 @@ inline Plan plan_network(const config::Settings& s, bool setup_mode, std::string
     ap.security = config::WifiSecurity::kWpa2;
     ap.max_clients = 4;
   } else {
-    plan.station = s.sta.enabled;
+    plan.station = !wired && s.sta.enabled;
     if (s.ap.enabled) {
       ap.enabled = true;
       ap.ssid = s.ap.ssid;
@@ -80,6 +86,7 @@ inline Plan plan_network(const config::Settings& s, bool setup_mode, std::string
     ap.bandwidth_mhz = s.ap.bandwidth_mhz;
   }
   if (setup_mode) plan.layout = Layout::kSetupAp;
+  else if (wired) plan.layout = ap.enabled ? Layout::kEthernetWithAp : Layout::kEthernet;
   else if (plan.station) plan.layout = ap.enabled ? Layout::kStationWithAp : Layout::kStation;
   else plan.layout = Layout::kAccessPoint;
   return plan;
@@ -91,6 +98,8 @@ inline const char* to_text(Layout layout) {
     case Layout::kStation: return "wifi-station";
     case Layout::kStationWithAp: return "wifi-station+ap";
     case Layout::kAccessPoint: return "wifi-ap";
+    case Layout::kEthernet: return "ethernet";
+    case Layout::kEthernetWithAp: return "ethernet+ap";
   }
   return "wifi-station";
 }

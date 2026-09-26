@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.4] - One firmware for two boards: Wi-Fi and Ethernet
+
+- **The Waveshare ESP32-S3-ETH is supported** next to the ESP32-S3-WROOM-1 N16R8. The firmware is one code base with two **board profiles** chosen when the image is built: `tools/build_node.sh generic s3-wifi` (the default) writes `dist/generic-s3-wifi.bin`, `tools/build_node.sh generic s3-eth` writes `dist/generic-s3-eth.bin`. An image is for ONE board: flash it only to that one.
+- **The `s3-eth` profile** brings the W5500 Ethernet driver (the same code as ARMOR-RADAR's, on the same board), the Ethernet way in with DHCP or a fixed address (checked as a whole: address, mask, gateway, DNS), the layouts *ethernet* and *ethernet + access point* (the access point is a network of its own for reaching the node from a phone, not bridged to the cable), and the pin table of that board: GPIO 9 to 14 (the W5500) and 8 (the camera connector) are never offered, GPIO 4 to 7 are the microSD socket. The ports' default pins move to free pins; the tenth port has no free pair left and sits on strapping pins (the panel warns).
+- **The panel** shows the connection card (cable or Wi-Fi, DHCP or a fixed address) and the board's name only on the board that has a cable; the set-up needs no Wi-Fi there. The `s3-wifi` image is unchanged for the user and refuses an Ethernet setting (`not_available`).
+- **Tests:** 349 host checks (100 of the protocol library, 166 of the node on the `s3-wifi` profile, 83 of the `s3-eth` profile: its pin table, that every default pin of the ten ports is usable and none is shared, the address checks, the settings document, the layouts).
+- **Not done:** a run on either board. The Ethernet path (W5500 on SPI, the link, DHCP and a fixed address, the interrupt service shared with the emulated UARTs, whose edges may be delayed during a flash write on this board) is untried. `docs/NODE_FIRMWARE.md` has the bench checklist for both boards.
+
 ## [0.0.3] - The firmware of the solar node
 
 - **The firmware of an ESP32-S3-WROOM-1 N16R8 (Wi-Fi only), with its web panel.** It reads equipment through **ten serial ports**: three hardware UARTs (any pins) and seven emulated ones (an interrupt on every edge of the RX pin; one hardware timer shared by all of them shifts out the TX bits, one port sending at a time; up to 19200 baud), each independent and each an *inverter* (Voltronic / MPP Solar), a *battery* (Pylontech console), an *ANT-BMS* battery or a *raw monitor* that only listens and shows what arrives, for a protocol that is not decoded. A node may read only inverters, only batteries or a mix; RS485 through a driver-enable pin.

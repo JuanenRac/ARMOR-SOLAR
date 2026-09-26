@@ -8,9 +8,13 @@ add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 
 add_executable(test_solar test_solar.cpp)
 add_executable(test_node test_node.cpp)
+# the s3-eth board profile (the Waveshare ESP32-S3-ETH): the same core headers compiled for the other board
+add_executable(test_board_eth test_board_eth.cpp)
+target_compile_definitions(test_board_eth PRIVATE ARMOR_BOARD_S3_ETH=1)
 add_executable(emit_samples emit_samples.cpp)
 add_executable(emit_poller_samples emit_poller_samples.cpp)
 
 enable_testing()
 add_test(NAME solar COMMAND test_solar)
 add_test(NAME node COMMAND test_node)
+add_test(NAME board_eth COMMAND test_board_eth)

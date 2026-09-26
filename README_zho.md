@@ -25,13 +25,14 @@
 
 ---
 
-**诚实性检查 - 今天真正能运行的部分:** **成熟度：scaffolding。** 固件能在 ESP-IDF 5.4.2 容器中构建，其核心（设置、与各类设备的交互、模拟 UART 的运算：254 项检查）已在电脑上用替身设备测试，它生成的消息被 ARMOR-COMMON 接受，网页面板已在浏览器中对着替身节点试用。**它从未在开发板上运行过，也没有连接过任何逆变器或电池**：Wi-Fi、TLS 面板、更新、硬件和模拟 UART 以及协议格式（根据公开文档和记忆编写）都未经尝试。测试中的 ANT-BMS 帧是他人在自己的设备上抓取的，本项目自己还没有读过任何一台。
+**诚实性检查 - 今天真正能运行的部分:** **成熟度：scaffolding。** 固件能在 ESP-IDF 5.4.2 容器中构建，其核心（设置、与各类设备的交互、模拟 UART 的运算：349 项检查）已在电脑上用替身设备测试，它生成的消息被 ARMOR-COMMON 接受，网页面板已在浏览器中对着替身节点试用。**它从未在开发板上运行过，也没有连接过任何逆变器或电池**：Wi-Fi、TLS 面板、更新、硬件和模拟 UART 以及协议格式（根据公开文档和记忆编写）都未经尝试。测试中的 ANT-BMS 帧是他人在自己的设备上抓取的，本项目自己还没有读过任何一台。
 
 ---
 
 ## 🎯 概述
 
-* **节点固件**（ESP32-S3-WROOM-1 N16R8，仅 Wi-Fi）：十个串口，三个硬件 UART 和七个模拟 UART（最高 19200 波特），每个都独立，可读取逆变器、电池或原始监视，因此一个节点可以只读逆变器、只读电池或两者混合。
+* **两种开发板，一套固件：** 走 Wi-Fi 的 ESP32-S3-WROOM-1 N16R8（默认）和走以太网线的 Waveshare ESP32-S3-ETH（DHCP 或固定地址；保留自己的 Wi-Fi 网络以便从手机访问）。镜像在构建时选择（`tools/build_node.sh generic s3-wifi` 或 `generic s3-eth`）；引脚表、端口的默认引脚和接入方式随开发板而定，镜像只适用于对应的开发板。两者都能构建并已在电脑上测试，但都没在开发板上运行过。
+* **节点固件**（Wi-Fi 的 ESP32-S3-WROOM-1 N16R8，或有线的 Waveshare ESP32-S3-ETH）：十个串口，三个硬件 UART 和七个模拟 UART（最高 19200 波特），每个都独立，可读取逆变器、电池或原始监视，因此一个节点可以只读逆变器、只读电池或两者混合。
 * **节点的网页面板，** 与雷达节点相同：用 USB 控制台显示的代码进行设置、登录和用户、Wi-Fi（站点和接入点）、代理、带回滚的空中更新、日志、HTTPS，以及串口页面（显示每个端口收到的内容，用于尚未解码的协议）和读数页面，支持七种语言。
 * **Voltronic / MPP Solar 逆变器**（Axpert、PIP、InfiniSolar 及其克隆），RS232 2400 波特：帧及其 CRC，以及读数 `QPIGS`（电网、输出、电池、光伏、状态位）、`QMOD`（模式）、`QPIWS`（按名称列出的警告和故障）和 `QPIRI`（额定值）。只能构造读取命令：设置会改变房屋的供电方式。
 * **Pylontech 电池**（US2000、US3000、US5000）：控制台的 `pwr` 表（每个模块的电压、电流、温度和电量）、`bat <n>`（每个电芯的电压和温度）以及 `info <n>`（型号、剩余和满容量、循环次数），汇总为一个电池组及其总容量和能量，还有带两项校验的 RS485 帧。这些格式是凭对公开控制台的记忆写成的，不同固件可能不同。
@@ -55,9 +56,10 @@ ARMOR-SOLAR/
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar && build/host/test_node      # 199 checks, -Werror
+build/host/test_solar && build/host/test_node && build/host/test_board_eth      # 349 checks, -Werror
 build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
-tools/build_node.sh generic                       # the firmware image in the ESP-IDF container: dist/generic.bin
+tools/build_node.sh generic                       # the firmware image for the N16R8 board in the ESP-IDF container: dist/generic-s3-wifi.bin
+tools/build_node.sh generic s3-eth               # the same firmware for the Waveshare ESP32-S3-ETH (Ethernet): dist/generic-s3-eth.bin
 node tools/panel_mock.mjs --user admin:adminpass123   # the panel without a board
 ```
 

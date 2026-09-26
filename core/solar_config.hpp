@@ -33,6 +33,14 @@ constexpr std::size_t kPortCount = static_cast<std::size_t>(board::kPortCount);
 enum class WifiSecurity { kOpen, kWpa2, kWpa3, kWpa2Wpa3 };
 // The panel over plain HTTP only, over HTTP and HTTPS (a certificate the node made for itself), or over HTTPS only (port 80 sends the browser to HTTPS).
 enum class WebMode { kHttp, kBoth, kHttps };
+// How the node reaches the network: over the Ethernet cable (only the s3-eth board has one) or as a Wi-Fi station.
+enum class Uplink { kWifi, kEthernet };
+
+// The address of the Ethernet port: DHCP, or a fixed address, mask, gateway and DNS.
+struct IpSettings {
+  bool dhcp = true;
+  std::string address, netmask = "255.255.255.0", gateway, dns1, dns2;
+};
 
 struct AccessPoint {
   bool enabled = false;
@@ -99,6 +107,8 @@ struct PortConfig {
 struct Settings {
   std::string node_id;
   std::string node_name;
+  Uplink uplink = board::kHasEthernet ? Uplink::kEthernet : Uplink::kWifi;   // the board's own way in until the panel says otherwise
+  IpSettings ip;
   std::string hostname;  // empty: "armor-" + the node id
   AccessPoint ap;
   Station sta;
@@ -118,6 +128,7 @@ inline const char* to_text(WifiSecurity v) {
   switch (v) { case WifiSecurity::kOpen: return "open"; case WifiSecurity::kWpa2: return "wpa2"; case WifiSecurity::kWpa3: return "wpa3"; case WifiSecurity::kWpa2Wpa3: return "wpa2wpa3"; }
   return "wpa2";
 }
+inline const char* to_text(Uplink v) { return v == Uplink::kEthernet ? "ethernet" : "wifi"; }
 inline const char* to_text(WebMode v) { return v == WebMode::kHttps ? "https" : v == WebMode::kHttp ? "http" : "both"; }
 
 // Whether a port is a hardware UART or an emulated one, from its number (0 to 9).
@@ -219,6 +230,15 @@ inline void read_settings(const json::Value& document, Settings& s, Problems& pr
     read_text(*node, "id", s.node_id, kMaxNodeIdLength, "node.id", problems);
     read_text(*node, "name", s.node_name, 48, "node.name", problems);
     read_text(*node, "hostname", s.hostname, 32, "node.hostname", problems);
+  }
+  if (document.get("uplink") != nullptr && !read_choice<Uplink>(document, "uplink", {{"wifi", Uplink::kWifi}, {"ethernet", Uplink::kEthernet}}, s.uplink)) bad(problems, "uplink", "invalid");
+  if (const json::Value* ip = document.get("ip"); ip != nullptr && ip->is_object()) {
+    read_bool(*ip, "dhcp", s.ip.dhcp, "ip.dhcp", problems);
+    read_text(*ip, "address", s.ip.address, 15, "ip.address", problems);
+    read_text(*ip, "netmask", s.ip.netmask, 15, "ip.netmask", problems);
+    read_text(*ip, "gateway", s.ip.gateway, 15, "ip.gateway", problems);
+    read_text(*ip, "dns1", s.ip.dns1, 15, "ip.dns1", problems);
+    read_text(*ip, "dns2", s.ip.dns2, 15, "ip.dns2", problems);
   }
   if (const json::Value* ap = document.get("ap"); ap != nullptr && ap->is_object()) {
     read_bool(*ap, "enabled", s.ap.enabled, "ap.enabled", problems);
@@ -322,7 +342,22 @@ inline Problems validate(const Settings& s) {
   if (!language_is_known(s.language)) bad(problems, "ui.language", "invalid");
   if (!s.hostname.empty() && !net::valid_hostname(s.hostname)) bad(problems, "node.hostname", "invalid");
 
-  // Wi-Fi: the node has no cable, so at least one of its two ways in must be on
+  // the way in: the Ethernet cable (only the s3-eth board has one), with DHCP or a fixed address, or Wi-Fi
+  if (s.uplink == Uplink::kEthernet && !board::kHasEthernet) bad(problems, "uplink", "not_available");
+  if (s.uplink == Uplink::kEthernet && !s.ip.dhcp) {
+    std::uint32_t address = 0, mask = 0, gateway = 0, dns = 0;
+    const bool address_ok = net::parse_ipv4(s.ip.address, address), mask_ok = net::parse_ipv4(s.ip.netmask, mask) && net::valid_netmask(mask);
+    if (!address_ok || !net::usable_host_address(address)) bad(problems, "ip.address", s.ip.address.empty() ? "required" : "invalid");
+    if (!mask_ok) bad(problems, "ip.netmask", s.ip.netmask.empty() ? "required" : "invalid");
+    if (address_ok && mask_ok && net::is_network_or_broadcast(address, mask)) bad(problems, "ip.address", "invalid");
+    if (!net::parse_ipv4(s.ip.gateway, gateway) || !net::usable_host_address(gateway)) bad(problems, "ip.gateway", s.ip.gateway.empty() ? "required" : "invalid");
+    else if (address_ok && mask_ok && !net::same_subnet(address, gateway, mask)) bad(problems, "ip.gateway", "outside_subnet");
+    else if (address_ok && gateway == address) bad(problems, "ip.gateway", "conflict");
+    if (!s.ip.dns1.empty() && !net::parse_ipv4(s.ip.dns1, dns)) bad(problems, "ip.dns1", "invalid");
+    if (!s.ip.dns2.empty() && !net::parse_ipv4(s.ip.dns2, dns)) bad(problems, "ip.dns2", "invalid");
+  }
+
+  // Wi-Fi: a node on Wi-Fi has no other way in, so at least one of its two ways in must be on
   if (s.ap.enabled) {
     if (!net::valid_ssid(s.ap.ssid)) bad(problems, "ap.ssid", s.ap.ssid.empty() ? "required" : "invalid");
     if (s.ap.security != WifiSecurity::kOpen && !net::valid_wpa_passphrase(s.ap.password)) bad(problems, "ap.password", s.ap.password.empty() ? "required" : "invalid_key");
@@ -332,7 +367,7 @@ inline Problems validate(const Settings& s) {
     if (!net::valid_ssid(s.sta.ssid)) bad(problems, "sta.ssid", s.sta.ssid.empty() ? "required" : "invalid");
     if (!s.sta.password.empty() && !net::valid_wpa_passphrase(s.sta.password)) bad(problems, "sta.password", "invalid_key");
   }
-  if (!s.ap.enabled && !s.sta.enabled) bad(problems, "sta.enabled", "required");
+  if (s.uplink == Uplink::kWifi && !s.ap.enabled && !s.sta.enabled) bad(problems, "sta.enabled", "required");
 
   // broker
   if (s.mqtt.enabled) {
@@ -377,6 +412,9 @@ inline std::string to_json(const Settings& s, bool secrets) {
   w.begin_object();
   w.field("v", kVersion);
   w.key("node").begin_object().field("id", s.node_id).field("name", s.node_name).field("hostname", s.hostname).end_object();
+  w.field("uplink", to_text(s.uplink));
+  w.key("ip").begin_object().field("dhcp", s.ip.dhcp).field("address", s.ip.address).field("netmask", s.ip.netmask).field("gateway", s.ip.gateway)
+      .field("dns1", s.ip.dns1).field("dns2", s.ip.dns2).end_object();
   w.key("ap").begin_object().field("enabled", s.ap.enabled).field("ssid", s.ap.ssid).field("security", to_text(s.ap.security));
   if (secrets) w.field("password", s.ap.password); else w.field("password_set", !s.ap.password.empty());
   w.field("channel", s.ap.channel).field("hidden", s.ap.hidden).field("max_clients", s.ap.max_clients).field("tx_power_dbm", s.ap.tx_power_dbm)

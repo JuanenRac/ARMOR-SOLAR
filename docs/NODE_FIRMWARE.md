@@ -1,15 +1,25 @@
 # The firmware of the solar node
 
-The firmware of an **ESP32-S3-WROOM-1 N16R8** board (16 MB of flash, 8 MB of octal PSRAM, two USB-C sockets, no Ethernet: Wi-Fi only). It reads solar
+The firmware of **two boards**, one code base with a board profile chosen when the image is built (see *The two boards*): an **ESP32-S3-WROOM-1 N16R8** (16 MB of flash, 8 MB of octal PSRAM, two USB-C sockets, no Ethernet: Wi-Fi is its way in) and the **Waveshare ESP32-S3-ETH** (its way in is the Ethernet cable). It reads solar
 inverters and batteries through up to **ten serial ports** and publishes their readings to A.R.M.O.R.'s broker (`armor/solar/<node>/<device>/state`, the
 messages of ARMOR-COMMON). It has the same web panel as the radar nodes' (setup, login, users, Wi-Fi, broker, over-the-air update with rollback, log, the panel
 over HTTPS) and the pages of its own: the ports and the readings.
 
-**Nothing here has run on a board, and no inverter or battery has been connected.** What has been done: the firmware builds in the ESP-IDF 5.4.2 container
-(a 1.2 MB image in a 3 MB slot), its core (settings, the exchange with each kind of equipment, the emulated UART's arithmetic) is tested on a computer with
+**Nothing here has run on a board, and no inverter or battery has been connected.** What has been done: the firmware builds for both boards in the ESP-IDF 5.4.2 container
+(a 1.3 MB image in a 3 MB slot), its core (settings, the exchange with each kind of equipment, the emulated UART's arithmetic) is tested on a computer with
 stand-ins for the equipment, the messages it makes are accepted by ARMOR-COMMON, and the panel was exercised in a browser against a stand-in node.
 
-## The board
+## The two boards
+
+| Profile | Board | Way in | Build |
+| --- | --- | --- | --- |
+| `s3-wifi` (the default) | ESP32-S3-WROOM-1 N16R8, two USB-C sockets | Wi-Fi: a station and/or its own access point | `tools/build_node.sh generic s3-wifi` -> `dist/generic-s3-wifi.bin` |
+| `s3-eth` | Waveshare ESP32-S3-ETH: ESP32-S3R8, 16 MB flash, W5500 Ethernet (RJ45, PoE through a separate module), microSD socket, camera connector | The cable, with DHCP or a fixed address; Wi-Fi may be kept as an access point of its own (192.168.4.x, not bridged to the cable) | `tools/build_node.sh generic s3-eth` -> `dist/generic-s3-eth.bin` |
+
+The profile decides the **pin table**, the **default pins of the ports**, the **default way in** and whether the **W5500 driver** is built. **An image is for ONE board**: an `s3-wifi` image on the Waveshare board would
+put ports on the W5500's pins, and an `s3-eth` image on the other board would look for a W5500 that is not there. The panel shows the board's name in the overview and the image's own name is in the file.
+
+### The N16R8 board (`s3-wifi`)
 
 The pin map used is the one printed for this board (two USB-C sockets: **USB & OTG**, the chip's native USB on GPIO 19 and 20, and **USB to serial**, a CH343P on
 UART0's GPIO 43 and 44):
@@ -25,6 +35,26 @@ UART0's GPIO 43 and 44):
 | the rest of the header | Free |
 
 The log comes out of the **USB & OTG** socket (the console is moved to the native USB so that UART0 is free for a device); flash through the same socket.
+
+### The Waveshare ESP32-S3-ETH board (`s3-eth`)
+
+Its USB-C socket is the chip's native USB (the log and the flashing). The pin map is ARMOR-RADAR's, for the same board:
+
+| GPIO | Use |
+| --- | --- |
+| 26 to 32, 33 to 37, 19 and 20 | The flash, the octal PSRAM and the native USB: never offered |
+| 9 to 14 | The W5500 (reset, interrupt, MOSI, MISO, clock, chip select): never offered |
+| 8 | Wired to the camera connector: never offered |
+| 4 to 7 | The microSD socket: usable when no card is used (the panel says so) |
+| 0, 3, 45, 46 | Strapping pins: usable with care, as on the other board |
+| the rest (1, 2, 15 to 18, 21, 38 to 44, 47, 48) | Free |
+
+The defaults of the ports move to free pins (1 to 3: UART1 and UART2 on 16/15 and 18/17, UART0 on the SD pins 4/5; 4 to 9: emulated on 1/2, 21/47, 38/39, 40/41, 42/48 and 43/44). **The tenth port has no free pair left and sits on the strapping pins 3 and 46**: leave
+it off unless you need it, and only wire equipment whose idle level does not disturb the boot. The emulated ports' interrupt service is not IRAM-safe on this board (the W5500's handler shares it), so an edge that arrives while the
+flash is being written (a setting saved, an update) may be delayed: a reading in that instant can be lost, the next one is fine.
+
+**Ethernet:** the address comes from DHCP unless you fix one in *Network* (address, mask, gateway and DNS are checked together). The node's own Wi-Fi network (kept by the set-up, `ARMOR-SOLAR-xxxxxx`, the setup code as its password) is a separate
+network for reaching the node from a phone; it is not joined to the cable. A node that is being set up is reachable through the cable and through the set-up network at once.
 
 ## The ten ports
 
@@ -63,10 +93,11 @@ if the equipment shares its ground with a battery bank, with a common ground on 
 
 ## First start
 
-1. Build the image (`tools/build_node.sh generic`, in Linux or WSL with Docker: `dist/generic.bin`) and flash it through the **USB & OTG** socket:
-   `python -m esptool --chip esp32s3 -p COMx write_flash 0x0 dist/generic.bin`.
+1. Build the image for your board (`tools/build_node.sh generic s3-wifi` or `tools/build_node.sh generic s3-eth`, in Linux or WSL with Docker: `dist/generic-<board>.bin`) and flash it through the **USB & OTG** socket
+   (the USB-C socket of the Waveshare board): `python -m esptool --chip esp32s3 -p COMx write_flash 0x0 dist/generic-<board>.bin`.
 2. A node with no user opens the Wi-Fi **ARMOR-SETUP-xxxxxx** (the password is the setup code) and shows the code on its USB console every 15 seconds. Join it,
    open `http://192.168.4.1/`, enter the code, create the administrator and, if you want, the Wi-Fi network the node is to join. The node restarts.
+   On the Waveshare board the cable works too: plug it in and open the address DHCP gave the node (its MAC is on the console); there is no Wi-Fi to give in the set-up.
 3. After the setup the node keeps its own Wi-Fi **ARMOR-SOLAR-xxxxxx** (its password is the setup code; change it in the Wi-Fi page) so it can always be reached, and
    joins the network you gave it. Holding BOOT for 8 seconds within 30 seconds of power-up erases the settings and the users.
 4. In the panel: **Serial ports** (enable and set each port, save, restart), **Broker** (the address and the identity), **Readings** (the last reading of every port).
@@ -75,7 +106,8 @@ if the equipment shares its ground with a battery bank, with a common ground on 
 
 ## Bench checklist (everything below is untried)
 
-- The node starts, opens the setup Wi-Fi, the panel answers over HTTP and HTTPS, the setup completes, the update from the panel works and rolls back a bad image.
+- The node starts, opens the setup Wi-Fi, the panel answers over HTTP and HTTPS, the setup completes, the update from the panel works and rolls back a bad image (the `.bin` to upload is `build/generic-<board>/armor_solar.bin`, not the merged image).
+- **Waveshare board:** the W5500 answers on SPI (the overview says so when it does not), the link comes up with the cable, DHCP gives an address, a fixed address is kept after a restart, unplugging the cable is noticed and plugging it back recovers without a restart, the emulated ports still count no overruns while the panel is busy, and PoE powers the board without USB (read the schematic before connecting both).
 - A hardware port with a Voltronic inverter: `QPIGS`, `QMOD` and `QPIWS` are answered; compare the panel's numbers with the inverter's display; look at *what it hears*.
 - A hardware port with a Pylontech console: `pwr`, `bat n`, `info n`; the formats are written from memory of the public console and may differ between firmwares.
 - An emulated port at 2400 baud: the same inverter through it; check the framing errors and the overruns in the ports page while Wi-Fi is busy.
@@ -90,6 +122,6 @@ if the equipment shares its ground with a battery bank, with a common ground on 
 ## Files
 
 `main/` is the ESP-IDF component (`app_main.cpp`, `solar_manager.cpp` one task per port, `uart_ports.cpp` the hardware and emulated ports, `network.cpp`,
-`web_server.cpp`, `api_shared.cpp`, `mqtt_link.cpp`, `node_store.cpp`, `tls_cert.cpp`); `core/` is the part with no hardware in it (`solar_config.hpp` the settings,
+`web_server.cpp`, `api_shared.cpp`, `mqtt_link.cpp`, `node_store.cpp`, `tls_cert.cpp`, and for the Waveshare board `board_ethernet.cpp`, the W5500 driver); `core/` is the part with no hardware in it (`solar_config.hpp` the settings,
 `poller.hpp` the exchange with each kind of equipment, `ant_bms.hpp` the ANT-BMS's two protocols, `soft_uart.hpp`, `netplan.hpp`, `auth.hpp` and the protocol library); `panel/` the web panel (seven languages).
 `tools/panel_mock.mjs` is a stand-in node for working on the panel without a board.

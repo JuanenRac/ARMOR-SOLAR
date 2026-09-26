@@ -37,7 +37,8 @@ const char* reset_reason_text() {
 
 void write_network(json::Writer& w) {
   const network::Status n = network::status();
-  w.key("network").begin_object().field("layout", n.layout).field("link_up", n.link_up).field("has_ip", n.has_ip).field("ip", n.ip).field("netmask", n.netmask).field("gateway", n.gateway)
+  w.key("network").begin_object().field("board", n.board).field("ethernet_available", n.ethernet_available).field("ethernet_ok", n.ethernet_ok)
+      .field("layout", n.layout).field("link_up", n.link_up).field("has_ip", n.has_ip).field("ip", n.ip).field("netmask", n.netmask).field("gateway", n.gateway)
       .field("dns", n.dns).field("mac", n.mac).field("ap_active", n.ap_active).field("ap_setup", n.ap_setup).field("ap_ssid", n.ap_ssid).field("ap_channel", n.ap_channel)
       .field("ap_clients", n.ap_clients).field("sta_connected", n.sta_connected).field("sta_ssid", n.sta_ssid).field("sta_rssi", n.sta_rssi).end_object();
 }
@@ -81,7 +82,7 @@ std::string ports_json() {
     const board::PinInfo info = board::pin_info(gpio);
     if (info.reason == board::Reserved::kNoSuchPin) continue;
     const char* use = info.use == board::PinUse::kFree ? "free" : info.use == board::PinUse::kCaution ? "caution" : "reserved";
-    const char* reason = info.reason == board::Reserved::kFlash ? "flash" : info.reason == board::Reserved::kPsram ? "psram" : info.reason == board::Reserved::kUsb ? "usb" : "";
+    const char* reason = info.reason == board::Reserved::kFlash ? "flash" : info.reason == board::Reserved::kPsram ? "psram" : info.reason == board::Reserved::kUsb ? "usb" : info.reason == board::Reserved::kEthernet ? "ethernet" : info.reason == board::Reserved::kCamera ? "camera" : "";
     w.begin_object().field("gpio", gpio).field("use", use).field("reason", reason).field("note", info.note).field("on_header", info.on_header).end_object();
   }
   w.end_array().end_object();

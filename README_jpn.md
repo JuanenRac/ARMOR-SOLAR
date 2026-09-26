@@ -25,13 +25,14 @@
 
 ---
 
-**正直さのチェック - 今日動いているもの:** **成熟度：scaffolding。** ファームウェアは ESP-IDF 5.4.2 コンテナーでビルドでき、そのコア（設定、各種機器とのやり取り、エミュレート UART の計算：254 件のチェック）は代役の機器を使ってコンピューターでテスト済みで、生成するメッセージは ARMOR-COMMON に受理され、パネルは代役ノードに対してブラウザーで試しました。**ボード上で動いたことはなく、インバーターもバッテリーも接続されたことはありません**：Wi-Fi、TLS のパネル、更新、ハードウェアとエミュレートの UART、そしてプロトコルの書式（公開文書と記憶から書いたもの）は未試験です。テストにある ANT-BMS のフレームは他の人が自分の機器で採取したもので、このプロジェクト自身はまだ 1 台も読み取っていません。
+**正直さのチェック - 今日動いているもの:** **成熟度：scaffolding。** ファームウェアは ESP-IDF 5.4.2 コンテナーでビルドでき、そのコア（設定、各種機器とのやり取り、エミュレート UART の計算：349 件のチェック）は代役の機器を使ってコンピューターでテスト済みで、生成するメッセージは ARMOR-COMMON に受理され、パネルは代役ノードに対してブラウザーで試しました。**ボード上で動いたことはなく、インバーターもバッテリーも接続されたことはありません**：Wi-Fi、TLS のパネル、更新、ハードウェアとエミュレートの UART、そしてプロトコルの書式（公開文書と記憶から書いたもの）は未試験です。テストにある ANT-BMS のフレームは他の人が自分の機器で採取したもので、このプロジェクト自身はまだ 1 台も読み取っていません。
 
 ---
 
 ## 🎯 概要
 
-* **ノードのファームウェア**（ESP32-S3-WROOM-1 N16R8、Wi-Fi のみ）：シリアルポートは 10 個（ハードウェア UART 3 つとエミュレート 7 つ、最大 19200 ボー）。それぞれ独立し、インバーター、バッテリー、ローモニターのいずれかを読むため、ノードはインバーターのみ、バッテリーのみ、または両方を読めます。
+* **2 種類のボード、1 つのファームウェア：** Wi-Fi の ESP32-S3-WROOM-1 N16R8（標準）と、Ethernet ケーブルの Waveshare ESP32-S3-ETH（DHCP または固定アドレス。スマートフォンから接続できるよう独自の Wi-Fi ネットワークは残ります）。イメージはビルド時に選びます（`tools/build_node.sh generic s3-wifi` または `generic s3-eth`）。ピン表、ポートの既定ピン、アクセス方法はボードに従い、イメージは対応するボード専用です。どちらもビルドでき、コンピューター上でテスト済みですが、実機では動かしていません。
+* **ノードのファームウェア**（Wi-Fi の ESP32-S3-WROOM-1 N16R8、または有線の Waveshare ESP32-S3-ETH）：シリアルポートは 10 個（ハードウェア UART 3 つとエミュレート 7 つ、最大 19200 ボー）。それぞれ独立し、インバーター、バッテリー、ローモニターのいずれかを読むため、ノードはインバーターのみ、バッテリーのみ、または両方を読めます。
 * **ノードの Web パネル**（レーダーノードと同じもの）：USB コンソールに表示されるコードによるセットアップ、ログインとユーザー、Wi-Fi（ステーションとアクセスポイント）、ブローカー、ロールバック付きのオーバーザエア更新、ログ、HTTPS、そしてポート（各ポートが受信している内容を表示。未デコードのプロトコル用）と測定値のページ。7 言語対応。
 * **Voltronic / MPP Solar インバーター**（Axpert、PIP、InfiniSolar とその互換機）、RS232 2400 ボー：フレームとその CRC、および読み取り値 `QPIGS`（系統、出力、バッテリー、PV、状態ビット）、`QMOD`（モード）、`QPIWS`（名前付きの警告と故障）、`QPIRI`（定格）。組み立てられるのは読み取りコマンドだけです。設定は家への給電方法を変えてしまうからです。
 * **Pylontech バッテリー**（US2000、US3000、US5000）：コンソールの `pwr` 表（各モジュールの電圧、電流、温度、充電状態）、`bat <n>`（各セルの電圧と温度）、`info <n>`（型式、残容量と満容量、サイクル数）を、総容量と総エネルギーを持つ 1 つのスタックとして要約し、2 つのチェックを持つ RS485 フレームも扱います。書式は公開されているコンソールの記憶から書いたもので、ファームウェアによって異なる可能性があります。
@@ -55,9 +56,10 @@ ARMOR-SOLAR/
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar && build/host/test_node      # 199 checks, -Werror
+build/host/test_solar && build/host/test_node && build/host/test_board_eth      # 349 checks, -Werror
 build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
-tools/build_node.sh generic                       # the firmware image in the ESP-IDF container: dist/generic.bin
+tools/build_node.sh generic                       # the firmware image for the N16R8 board in the ESP-IDF container: dist/generic-s3-wifi.bin
+tools/build_node.sh generic s3-eth               # the same firmware for the Waveshare ESP32-S3-ETH (Ethernet): dist/generic-s3-eth.bin
 node tools/panel_mock.mjs --user admin:adminpass123   # the panel without a board
 ```
 

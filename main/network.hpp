@@ -1,4 +1,4 @@
-// ARMOR-SOLAR - the node's network: the Wi-Fi station, the Wi-Fi access point, or both. The node has no cable.
+// ARMOR-SOLAR - the node's network: the Ethernet port (the s3-eth board), the Wi-Fi station, the Wi-Fi access point, or a mix.
 // Copyright (C) 2026 JuanenRac (Electro Hobby 3D). GPL-3.0-or-later.
 #pragma once
 #include <string>
@@ -11,7 +11,10 @@ namespace armor::network {
 
 struct Status {
   std::string layout;                 // see netplan::to_text
-  bool link_up = false;               // the station is associated with its network
+  bool link_up = false;               // the Ethernet cable has a link, or the station is associated with its network
+  bool ethernet_available = false;    // this board has an Ethernet port (the s3-eth profile)
+  bool ethernet_ok = true;            // false: the W5500 did not answer
+  std::string board;                  // "s3-wifi" or "s3-eth"
   bool has_ip = false;
   std::string ip, netmask, gateway, dns, mac;
   bool ap_active = false;

@@ -159,7 +159,9 @@ class SoftPort final : public Port {
     input.pull_up_en = GPIO_PULLUP_ENABLE;   // an idle line is high
     input.intr_type = GPIO_INTR_ANYEDGE;
     if (gpio_config(&input) != ESP_OK) { error = "pins"; return false; }
-    const esp_err_t service = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    // On the s3-eth board the W5500's own interrupt handler shares this service and is not IRAM-safe, so the service is not: an edge that arrives while
+    // a flash write has the cache off is then delayed instead of crashing the chip.
+    const esp_err_t service = gpio_install_isr_service(board::kHasEthernet ? 0 : ESP_INTR_FLAG_IRAM);
     if (service != ESP_OK && service != ESP_ERR_INVALID_STATE) { error = "driver"; return false; }
     if (gpio_isr_handler_add(static_cast<gpio_num_t>(o.rx), on_rx_edge, &shared_) != ESP_OK) { error = "driver"; return false; }
     if (o.tx >= 0) {
