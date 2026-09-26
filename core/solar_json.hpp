@@ -29,19 +29,41 @@ inline std::string topic(const std::string& node_id, const std::string& device) 
 }
 
 // An inverter's message. `mode` is the letter of QMOD (0 when unknown), `warnings` the names of QPIWS's active flags.
+// What an inverter may add to its message: a second PV input, and the units of a parallel system.
+struct InverterExtras {
+  bool has_pv2 = false;
+  voltronic::Pv2 pv2;
+  std::vector<voltronic::ParallelUnit> units;
+};
+
 inline std::string inverter_json(const std::string& node_id, const std::string& device, std::uint64_t timestamp_ms, char mode, const voltronic::Status& s,
-                                 const std::vector<std::string>& warnings) {
+                                 const std::vector<std::string>& warnings, const InverterExtras* extras = nullptr) {
+  const bool pv2 = extras != nullptr && extras->has_pv2;
   json::Writer w;
   w.begin_object().field("kind", "inverter").field("node_id", node_id).field("device", device).key("timestamp_ms").integer(static_cast<long long>(timestamp_ms));
   w.field("mode", mode == 0 ? "unknown" : voltronic::mode_name(mode));
   w.key("grid_v").number(s.grid_v, 1).key("grid_hz").number(s.grid_hz, 1).key("out_v").number(s.out_v, 1).key("out_hz").number(s.out_hz, 1);
   w.key("out_va").number(s.out_va, 0).key("out_w").number(s.out_w, 0).key("load_percent").number(s.load_percent, 0);
   w.key("battery_v").number(s.battery_v, 2).key("battery_a").number(s.battery_a(), 1).key("battery_percent").number(s.battery_percent, 0);
-  w.key("pv_v").number(s.pv_v, 1).key("pv_a").number(s.pv_a, 1).key("pv_w").number(s.pv_w, 0).key("heatsink_c").number(s.heatsink_c, 0);
+  w.key("pv_v").number(s.pv_v, 1).key("pv_a").number(s.pv_a, 1).key("pv_w").number(pv2 ? s.pv_w + extras->pv2.power_w : s.pv_w, 0).key("heatsink_c").number(s.heatsink_c, 0);
   w.field("ac_charging", s.ac_charging).field("pv_charging", s.scc_charging).field("load_on", s.load_on);
   w.key("warnings").begin_array();
   for (const std::string& name : warnings) w.string(name);
-  w.end_array().end_object();
+  w.end_array();
+  if (pv2) w.key("pv2_v").number(extras->pv2.voltage_v, 1).key("pv2_a").number(extras->pv2.current_a, 1).key("pv2_w").number(extras->pv2.power_w, 0);
+  if (extras != nullptr && !extras->units.empty()) {
+    const voltronic::ParallelUnit& first = extras->units.front();   // the totals are those of the whole system, whichever unit says them
+    w.key("total_out_w").number(first.total_out_w, 0).key("total_out_va").number(first.total_out_va, 0).key("total_load_percent").number(first.total_load_percent, 0)
+        .key("total_charging_a").number(first.total_charging_a, 0);
+    w.key("units").begin_array();
+    for (const voltronic::ParallelUnit& u : extras->units) {
+      w.begin_object().field("unit", u.number).field("serial", u.serial).field("mode", voltronic::mode_name(u.mode)).field("fault_code", u.fault);
+      w.key("grid_v").number(u.grid_v, 1).key("out_v").number(u.out_v, 1).key("out_va").number(u.out_va, 0).key("out_w").number(u.out_w, 0).key("load_percent").number(u.load_percent, 0);
+      w.key("battery_v").number(u.battery_v, 1).key("battery_percent").number(u.battery_percent, 0).key("pv_v").number(u.pv_v, 1).key("charging_a").number(u.charging_a, 0).end_object();
+    }
+    w.end_array();
+  }
+  w.end_object();
   return w.str();
 }
 

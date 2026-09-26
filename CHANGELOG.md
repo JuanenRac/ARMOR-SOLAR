@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.8] - The base board with multiplexers, the cells in rotation, a second PV input and parallel units
+
+- **The mux profile** for the base board with eight RJ45 sockets: a 74HC4052 multiplexer in front of each of the three hardware UARTs (groups of 4, 2 and 2 ports), the pins of the groups and of the LEDs' 74HC595 in the settings and the panel, and a new setting *Ports of the node* (`profile`: `direct` as before, or `mux`). The ports of a group take turns on the line (`core/mux_group.hpp`): each gets the multiplexer, its own speed and polarity and an empty UART, and runs until its cycle is over; a silent port costs its own timeouts and nobody else's. One LED per port through the 74HC595: a pulse for a good reading, fast blinking for a failed one, dark when the port is off. **Signals arrive inverted** per port, for a TTL device wired through a MAX3232.
+- **The cells of a tall stack in rotation** (`cells_per_cycle`): each cycle reads the cells of that many Pylontech modules, in turn, and the others keep those of their last turn.
+- **The second PV input (`QPIGS2`) and the units of a parallel system (`QPGS0`...)** for an inverter in the standard dialect, both off by default and never at the cost of the reading: `pv2_*` in the message (and `pv_w` as the sum of both inputs), `units` and the totals of the whole system. The contract of ARMOR-COMMON, the server and Studio know them.
+- **Not read: `pwrsys`.** Its output is not described in any public document that could be found, so no parser was written from a guess. Instead, the panel's **Ask the battery** sends one question to a Pylontech console from an allow-list of commands that only read (`pwrsys`, `pwr`, `help`, `bat`/`info`/`stat`/`soh`/`data` with a module) and shows the answer as it came, so that it can be captured from a real battery (`core/console_probe.hpp`, 96 checks; the text on the wire is rebuilt from the list, never copied from the input).
+- **Tests:** 2,548 host checks in all: 1,630 of the mux profile (the settings, who has the line, the LEDs, the rotation), 57 of the two optional readings, 96 of the console question, and the messages with them are accepted by ARMOR-COMMON; the panel was exercised in a real browser against a stand-in node (`tools/panel_browser_test.mjs`, 16 checks).
+- **Not done:** none of it has run on a board.
+
 ## [0.0.7] - Configuration from a phone over Bluetooth
 
 - **Bluetooth Low Energy (NimBLE), the same channel as ARMOR-RADAR's node:** a phone running the ARMOR app finds the node as `ARMOR-XXXXXX` and sets up its name, Wi-Fi station, address, broker and the rest, with the same set-up code and the same users as the panel (`docs/BLE_PROVISIONING.md`). The link asks for encryption before anything is written; every operation but `hello` needs the set-up code or a login, changing anything needs an administrator, and wrong passwords are throttled.

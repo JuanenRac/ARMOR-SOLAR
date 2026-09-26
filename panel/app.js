@@ -341,11 +341,74 @@ async function refreshRaw() {
   if (r.ok) { S.raw = r.data.text; const box = document.getElementById("port-raw"); if (box) box.textContent = S.raw || t("rawEmpty"); }
 }
 
+// Where port `index` (0 to 7) sits in the mux profile: its group (0 to 2) and channel, from the sizes of the groups; null when the groups have no such port.
+function muxSlotOf(index) {
+  let first = 0;
+  for (let g = 0; g < S.cfg.mux.length; ++g) {
+    const size = S.cfg.mux[g].channels >= 1 && S.cfg.mux[g].channels <= 4 ? S.cfg.mux[g].channels : 0;
+    if (index < first + size) return { group: g, channel: index - first };
+    first += size;
+  }
+  return null;
+}
+const muxPortCount = () => S.cfg.mux.reduce((n, g) => n + (g.channels >= 1 && g.channels <= 4 ? g.channels : 0), 0);
+
+function muxGroupRows(g) {
+  const base = "mux." + g + ".", cfg = S.cfg.mux[g];
+  return el("div", {}, el("h3", {}, t("muxGroup", "ABC"[g])),
+    el("div", { class: "row" }, field("muxTx", base + "tx", { type: "select", number: true, options: pinOptions(cfg.tx, false) }), field("muxRx", base + "rx", { type: "select", number: true, options: pinOptions(cfg.rx, false) }),
+      field("muxS0", base + "s0", { type: "select", number: true, options: pinOptions(cfg.s0, false) }), field("muxS1", base + "s1", { type: "select", number: true, options: pinOptions(cfg.s1, true) }),
+      field("muxChannels", base + "channels", { type: "select", number: true, rerender: true, options: [1, 2, 3, 4].map(n => [n, String(n)]) })));
+}
+
+function boardCard() {
+  const mux = S.cfg.profile === "mux";
+  return el("section", { class: "card" }, el("h2", {}, t("profileTitle")),
+    field("profileLabel", "profile", { type: "select", rerender: true, options: [["direct", t("profileDirect")], ["mux", t("profileMux")]] }), el("p", { class: "hint" }, t("profileHint")),
+    mux ? [el("p", { class: "muted" }, t("muxIntro")), [0, 1, 2].map(muxGroupRows),
+      el("h3", {}, t("ledsTitle")),
+      el("div", { class: "row" }, field("ledData", "leds.data", { type: "select", number: true, options: pinOptions(S.cfg.leds.data, true) }),
+        field("ledClock", "leds.clock", { type: "select", number: true, options: pinOptions(S.cfg.leds.clock, true) }), field("ledLatch", "leds.latch", { type: "select", number: true, options: pinOptions(S.cfg.leds.latch, true) })),
+      el("p", { class: "hint" }, t("ledsHint"))] : null);
+}
+
+// ---- asking a battery's console one question that only reads ----
+const CONSOLE_COMMANDS = [["pwrsys", false], ["pwr", false], ["help", false], ["bat", true], ["info", true], ["stat", true], ["soh", true], ["data", true]];
+async function askConsole(index) {
+  const [name, needsModule] = CONSOLE_COMMANDS.find(c => c[0] === S.consoleName) || CONSOLE_COMMANDS[0];
+  const command = needsModule ? name + " " + (S.consoleModule || 1) : name;
+  S.console = { port: index, state: "running", command, text: "", error: "" };
+  render();
+  const started = await api("POST", "ports/console?port=" + (index + 1), { command });
+  if (!started.ok) { S.console = { port: index, state: "error", command, text: "", error: started.data && started.data.error ? started.data.error : "error" }; render(); return; }
+  for (let i = 0; i < 40; ++i) {
+    await new Promise(r => setTimeout(r, 400));
+    const answer = await api("GET", "ports/console?port=" + (index + 1));
+    if (answer.ok && answer.data.state !== "running") { S.console = { ...answer.data, port: index }; render(); return; }
+  }
+  S.console = { port: index, state: "error", command, text: "", error: "timeout" };
+  render();
+}
+function consoleView(index) {
+  const c = S.console && S.console.port === index ? S.console : null;
+  const needs = (CONSOLE_COMMANDS.find(x => x[0] === (S.consoleName || "pwrsys")) || [])[1];
+  return el("div", { class: "console" }, el("h3", {}, t("consoleTitle")), el("p", { class: "hint" }, t("consoleHint")),
+    el("div", { class: "row" },
+      el("label", {}, t("consoleCommand"), el("select", { onchange: e => { S.consoleName = e.target.value; render(); } }, CONSOLE_COMMANDS.map(c => el("option", { value: c[0], selected: (S.consoleName || "pwrsys") === c[0] }, c[0])))),
+      needs ? el("label", {}, t("consoleModule"), el("input", { type: "number", min: 1, max: 16, value: S.consoleModule || 1, oninput: e => { S.consoleModule = Number(e.target.value) || 1; } })) : null),
+    el("div", { class: "actions" }, el("button", { class: "b", disabled: !isAdmin() || (c && c.state === "running"), onclick: () => askConsole(index) }, t("consoleAsk")),
+      c && c.state === "running" ? el("span", { class: "muted" }, t("consoleRunning")) : null),
+    c && c.state === "error" ? el("p", { class: "err" }, t(c.error === "timeout" ? "consoleTimeout" : "consoleRefused")) : null,
+    c && (c.state === "done" || (c.state === "error" && c.text)) ? el("pre", { class: "log", id: "console-answer" }, c.text || "") : null,
+    c && c.truncated ? el("p", { class: "hint" }, t("consoleTruncated")) : null);
+}
+
 function portCard(index) {
-  const cfg = S.cfg.ports[index], base = "ports." + index + ".", soft = index >= 3, st = portStatus(index), kind = kindOf(cfg.kind);
+  const mux = S.cfg.profile === "mux", slot = mux ? muxSlotOf(index) : null;
+  const cfg = S.cfg.ports[index], base = "ports." + index + ".", soft = !mux && index >= 3, st = portStatus(index), kind = kindOf(cfg.kind);
   const bauds = soft ? SOFT_BAUDS : HARDWARE_BAUDS;
   const kindChanged = value => { if (!cfg.name || /^port\d$/.test(cfg.name)) setValue(base + "name", (value === "voltronic" ? "inverter" : value === "pylontech" || value === "ant" ? "battery" : "monitor") + "-" + (index + 1)); };
-  return el("section", { class: "card" }, el("h2", {}, t("portN", index + 1), " · " + t(soft ? "portEmulated" : "portHardware"), cfg.enabled ? " · " + t(kind[1]).split(" (")[0] : ""),
+  return el("section", { class: "card" }, el("h2", {}, t("portN", index + 1), " · " + (mux ? t("portGroup", "ABC"[slot.group], slot.channel + 1) : t(soft ? "portEmulated" : "portHardware")), cfg.enabled ? " · " + t(kind[1]).split(" (")[0] : ""),
     field("portEnabled", base + "enabled", { type: "checkbox", rerender: true }),
     cfg.enabled ? [
       el("div", { class: "row" },
@@ -354,11 +417,15 @@ function portCard(index) {
       el("div", { class: "row" }, field("deviceName", base + "name", { max: 32, hint: t("deviceNameHintSolar") }),
         cfg.kind === "raw" ? null : field("pollSeconds", base + "poll_s", { type: "number", min: 0, max: 3600, hint: t("pollHint") }),
         cfg.kind === "pylontech" ? field("modulesLabel", base + "modules", { type: "number", min: 0, max: 8, hint: t("modulesHint") }) : null,
-        cfg.kind === "voltronic" ? field("dialectLabel", base + "dialect", { type: "select", options: [["auto", t("dialectAuto")], ["pi30", t("dialectPi30")], ["revo", t("dialectRevo")], ["pi18", t("dialectPi18")]], hint: t("dialectHint") }) : null),
-      el("div", { class: "row" }, field("rxPin", base + "rx", { type: "select", number: true, options: pinOptions(cfg.rx, false) }),
-        field("txPin", base + "tx", { type: "select", number: true, options: pinOptions(cfg.tx, true) }),
-        field("dePin", base + "de", { type: "select", number: true, options: pinOptions(cfg.de, true), hint: t("dePinHint") })),
-      soft ? el("p", { class: "hint" }, t("softNote")) : null,
+        cfg.kind === "pylontech" ? field("cellsLabel", base + "cells_per_cycle", { type: "number", min: 0, max: 8, hint: t("cellsHint") }) : null,
+        cfg.kind === "voltronic" ? field("dialectLabel", base + "dialect", { type: "select", options: [["auto", t("dialectAuto")], ["pi30", t("dialectPi30")], ["revo", t("dialectRevo")], ["pi18", t("dialectPi18")]], hint: t("dialectHint") }) : null,
+        cfg.kind === "voltronic" && (cfg.dialect === "auto" || cfg.dialect === "pi30") ? field("parallelLabel", base + "parallel", { type: "number", min: 0, max: 10, hint: t("parallelHint") }) : null),
+      cfg.kind === "voltronic" && (cfg.dialect === "auto" || cfg.dialect === "pi30") ? [field("pv2Label", base + "pv2", { type: "checkbox" }), el("p", { class: "hint" }, t("pv2Hint"))] : null,
+      mux ? [field("invertLabel", base + "invert", { type: "checkbox" }), el("p", { class: "hint" }, t("invertHint"))]
+        : [el("div", { class: "row" }, field("rxPin", base + "rx", { type: "select", number: true, options: pinOptions(cfg.rx, false) }),
+          field("txPin", base + "tx", { type: "select", number: true, options: pinOptions(cfg.tx, true) }),
+          field("dePin", base + "de", { type: "select", number: true, options: pinOptions(cfg.de, true), hint: t("dePinHint") })),
+          soft ? el("p", { class: "hint" }, t("softNote")) : null],
       st.enabled ? el("div", { class: "actions" }, psPill(st.state), el("span", { class: "muted", id: "port-live-" + index }, portLiveText(st))) : null,
       st.enabled && st.detail ? el("p", { class: "muted" }, t("portDetail") + ": " + st.detail) : null,
       st.enabled && (st.error || st.state === "error") ? el("p", { class: "err" }, portErrorText(st)) : null,
@@ -366,12 +433,13 @@ function portCard(index) {
       st.enabled ? el("div", { class: "actions" }, el("button", { class: "b", onclick: () => showRaw(index) }, t(S.rawOpen === index ? "hideRaw" : "showRaw")),
         cfg.kind === "ant" ? el("button", { class: "b", disabled: !isAdmin() || (S.bms && S.bms.port === index && S.bms.state === "running"), onclick: () => readBmsSettings(index) }, t("antRead")) : null) : null,
       cfg.kind === "ant" ? bmsSettingsView(index) : null,
+      cfg.kind === "pylontech" && st.enabled ? consoleView(index) : null,
       S.rawOpen === index ? el("pre", { class: "log", id: "port-raw" }, S.raw || t("rawEmpty")) : null] : null);
 }
 
 function portsPage() {
   return el("div", {}, note(t("portsWarn")), el("p", { class: "muted" }, t("portsIntro")), note(t("portsRestart"), "info"),
-    el("div", { class: "grid wide" }, Array.from({ length: 10 }, (_, i) => i).map(portCard)));
+    el("div", { class: "grid wide" }, [boardCard()].concat(Array.from({ length: S.cfg.profile === "mux" ? Math.min(10, muxPortCount()) : 10 }, (_, i) => i).map(portCard))));
 }
 
 const num = (value, digits) => (typeof value === "number" ? value.toFixed(digits) : "—");

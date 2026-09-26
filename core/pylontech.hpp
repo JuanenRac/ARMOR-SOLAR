@@ -202,6 +202,16 @@ inline bool attach_cells(std::vector<Module>& modules, int number, const std::ve
   return false;
 }
 
+// The console ends every answer, a good one or a refusal ("Invalid command or fail to excute."), with a line of `$$` and its prompt (`pylon>` or `pylon_debug>`): the answer is
+// whole when the text ends in that prompt. Waiting for it also leaves nothing of this answer to be taken for the next one, and a command the battery does not know is over at once
+// instead of after the timeout.
+inline bool console_done(const std::string& text) {
+  const std::size_t end = text.find_last_not_of(" \r\n\t");
+  if (end == std::string::npos || text[end] != '>') return false;
+  const std::size_t marker = text.rfind("$$");
+  return marker != std::string::npos && marker < end;
+}
+
 // The whole stack in a few numbers: the modules that are present, their mean voltage, the total current, the temperature range and the mean state of charge.
 struct Stack {
   int modules = 0;

@@ -200,9 +200,56 @@ inline bool parse_qmod(const std::string& text, char& mode) {
   mode = c;
   return true;
 }
+// ---- QPIGS2: the second PV input of an inverter that has two --------------------------------------------------------------------------
+// "(03.1 327.3 01026 ": the current (A), the voltage (V) and the power (W) of the second input. An inverter with one input answers NAK.
+struct Pv2 { double current_a = 0, voltage_v = 0, power_w = 0; };
+inline bool parse_qpigs2(const std::string& text, Pv2& out) {
+  const std::vector<std::string> f = split_fields(text);
+  if (f.size() < 3) return false;
+  Pv2 v;
+  if (!detail::number(f[0], v.current_a) || !detail::number(f[1], v.voltage_v) || !detail::number(f[2], v.power_w)) return false;
+  if (v.current_a < 0 || v.current_a > 500 || v.voltage_v < 0 || v.voltage_v > 1500 || v.power_w < 0 || v.power_w > 100000) return false;
+  out = v;
+  return true;
+}
+
 inline const char* mode_name(char mode) {
   switch (mode) { case 'P': return "power_on"; case 'S': return "standby"; case 'L': return "line"; case 'B': return "battery"; case 'F': return "fault"; case 'H': return "power_saving"; case 'D': return "shutdown"; }
   return "unknown";
+}
+
+// ---- QPGS<n>: one unit of a parallel system ---------------------------------------------------------------------------------------------------
+// "(1 92931701100510 B 00 000.0 00.00 230.6 50.00 0275 0141 005 51.4 001 100 083.3 002 00574 00312 003 10100110 1 2 060 120 10 04 000": whether the unit is there (1), its serial
+// number, its work mode, its fault code, the grid (V, Hz), the output (V, Hz, VA, W, load %), the battery (V, charging A, %), the PV voltage, the totals of the whole system
+// (charging A, VA, W, load %), then status bits, the output mode and the charger settings, which are not used here. Firmware versions add fields at the end.
+struct ParallelUnit {
+  int number = 0;                  // the n of QPGSn
+  std::string serial;
+  char mode = 0;
+  std::string fault;               // two digits, "00": none
+  double grid_v = 0, grid_hz = 0, out_v = 0, out_hz = 0, out_va = 0, out_w = 0, load_percent = 0;
+  double battery_v = 0, charging_a = 0, battery_percent = 0, pv_v = 0;
+  double total_charging_a = 0, total_out_va = 0, total_out_w = 0, total_load_percent = 0;
+};
+// False when the text is not a whole answer, or when the unit is not there (the first field is 0).
+inline bool parse_qpgs(const std::string& text, ParallelUnit& out) {
+  const std::vector<std::string> f = split_fields(text);
+  if (f.size() < 19 || f[0] != "1") return false;
+  ParallelUnit u;
+  u.serial = f[1];
+  if (u.serial.empty() || u.serial.size() > 24 || f[2].size() != 1 || f[3].size() != 2 || !(f[3][0] >= '0' && f[3][0] <= '9') || !(f[3][1] >= '0' && f[3][1] <= '9')) return false;
+  u.mode = f[2][0];
+  u.fault = f[3];
+  double* into[15] = {&u.grid_v, &u.grid_hz, &u.out_v, &u.out_hz, &u.out_va, &u.out_w, &u.load_percent, &u.battery_v, &u.charging_a, &u.battery_percent, &u.pv_v,
+                      &u.total_charging_a, &u.total_out_va, &u.total_out_w, &u.total_load_percent};
+  for (std::size_t i = 0; i < 15; ++i) if (!detail::number(f[4 + i], *into[i])) return false;
+  const bool sane = u.grid_v <= 600 && u.out_v <= 600 && u.out_va <= 100000 && u.out_w <= 100000 && u.load_percent <= 200 && u.battery_v <= 1000 && u.battery_percent <= 100 && u.pv_v <= 1500 &&
+                    u.charging_a <= 1000 && u.total_charging_a <= 10000 && u.total_out_va <= 1000000 && u.total_out_w <= 1000000 && u.total_load_percent <= 200 &&
+                    u.grid_v >= 0 && u.out_v >= 0 && u.out_va >= 0 && u.out_w >= 0 && u.load_percent >= 0 && u.battery_v >= 0 && u.battery_percent >= 0 && u.pv_v >= 0 && u.charging_a >= 0 &&
+                    u.total_charging_a >= 0 && u.total_out_va >= 0 && u.total_out_w >= 0 && u.total_load_percent >= 0;
+  if (!sane) return false;
+  out = u;
+  return true;
 }
 
 // ---- QPIWS: warnings and faults ----------------------------------------------------------------------------------------------------

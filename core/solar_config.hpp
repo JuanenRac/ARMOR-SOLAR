@@ -29,6 +29,9 @@ namespace armor::config {
 constexpr int kVersion = 1;
 constexpr std::size_t kMaxPasswordText = 64;
 constexpr std::size_t kPortCount = static_cast<std::size_t>(board::kPortCount);
+// The "mux" profile: a base board with 74HC4052 multiplexers in front of the UARTs, so that up to three hardware UARTs serve up to eight ports (4, 2 and 2 in the default wiring).
+constexpr std::size_t kMuxGroups = 3;
+constexpr std::size_t kMuxPorts = 8;
 
 enum class WifiSecurity { kOpen, kWpa2, kWpa3, kWpa2Wpa3 };
 // The panel over plain HTTP only, over HTTP and HTTPS (a certificate the node made for itself), or over HTTPS only (port 80 sends the browser to HTTPS).
@@ -104,6 +107,23 @@ struct PortConfig {
   int poll_s = 0;     // seconds between two readings; 0: the kind's own
   int modules = 0;    // Pylontech: how many modules to ask cell by cell (0: all that answer, up to 8)
   std::string dialect = "auto";   // inverter: "auto" (looks for it), "pi30", "revo" or "pi18"; the other kinds ignore it
+  bool invert = false;            // the signals of the line arrive upside down (a device with TTL levels wired through a MAX3232 does): the UART flips them
+  int cells_per_cycle = 0;        // Pylontech: the cells of this many modules per cycle, in rotation (0: every module every cycle); the others keep their last cells
+  bool pv2 = false;               // inverter (standard dialect): also ask the second PV input (QPIGS2)
+  int parallel = 0;               // inverter (standard dialect): also ask this many units of a parallel system (QPGS0 to QPGS<n-1>); 0: none
+};
+
+// One group of the mux profile: a hardware UART (TX, RX) in front of which a 74HC4052 chooses the port with two select pins.
+struct MuxGroup {
+  int tx = -1, rx = -1;
+  int s0 = -1;
+  int s1 = -1;          // -1: tied to ground on the board (at most two ports in the group)
+  int channels = 2;     // how many ports the group serves (1 to 4)
+};
+// The 74HC595 that lights one LED per port: the pin of its serial data, of its shift clock and of its latch. All -1: no LEDs.
+struct LedPins {
+  int data = -1, clock = -1, latch = -1;
+  bool any() const { return data >= 0 || clock >= 0 || latch >= 0; }
 };
 
 struct Settings {
@@ -116,6 +136,9 @@ struct Settings {
   Station sta;
   Mqtt mqtt;
   std::array<PortConfig, kPortCount> ports;
+  std::string profile = "direct";     // "direct": every port has its own pins; "mux": the eight ports of the base board with multiplexers
+  std::array<MuxGroup, kMuxGroups> mux;
+  LedPins leds;
   WebMode web = WebMode::kBoth;
   BleMode ble = BleMode::kSetup;   // "setup": only while the node has no user; "always"; "off": the Bluetooth stack is not even started
   std::string language = "en";
@@ -144,6 +167,26 @@ inline const std::vector<int>& allowed_bauds(bool soft) {
   static const std::vector<int> emulated{1200, 2400, 4800, 9600, 19200};
   return soft ? emulated : hardware;
 }
+inline bool profile_is_mux(const std::string& profile) { return profile == "mux"; }
+
+// Where port `index` (0 to 7) sits in the mux profile: its group and its channel there. False when the groups have no such port.
+struct MuxSlot { std::size_t group = 0, channel = 0; };
+inline bool mux_slot_of(const std::array<MuxGroup, kMuxGroups>& groups, std::size_t index, MuxSlot& out) {
+  std::size_t first = 0;
+  for (std::size_t g = 0; g < kMuxGroups; ++g) {
+    const std::size_t size = groups[g].channels >= 1 && groups[g].channels <= 4 ? static_cast<std::size_t>(groups[g].channels) : 0;
+    if (index < first + size) { out.group = g; out.channel = index - first; return true; }
+    first += size;
+  }
+  return false;
+}
+// How many ports the groups serve in all.
+inline std::size_t mux_port_count(const std::array<MuxGroup, kMuxGroups>& groups) {
+  std::size_t n = 0;
+  for (const MuxGroup& g : groups) n += g.channels >= 1 && g.channels <= 4 ? static_cast<std::size_t>(g.channels) : 0;
+  return n;
+}
+
 inline int effective_baud(const PortConfig& port) {
   Kind kind;
   return port.baud != 0 || !kind_from_text(port.kind, kind) ? port.baud : info_of(kind).default_baud;
@@ -166,6 +209,11 @@ inline Settings default_settings(std::string_view mac_tail) {
     s.ports[i].de = board::kDefaultPins[i].de;
     s.ports[i].name = "port" + std::to_string(i + 1);
   }
+  // The wiring of the base board (ESP32-S3-WROOM-1 N16R8 or the Waveshare ESP32-S3-ETH; none of these is a reserved pin on either): three UARTs and their multiplexers, and the LEDs' shift register.
+  s.mux[0] = {15, 16, 17, 18, 4};
+  s.mux[1] = {1, 2, 38, -1, 2};
+  s.mux[2] = {40, 41, 42, -1, 2};
+  s.leds = {21, 39, 47};
   return s;
 }
 
@@ -286,7 +334,31 @@ inline void read_settings(const json::Value& document, Settings& s, Problems& pr
       read_int(item, "poll_s", port.poll_s, 0, 3600, base + "poll_s", problems);
       read_int(item, "modules", port.modules, 0, 8, base + "modules", problems);
       read_text(item, "dialect", port.dialect, 8, base + "dialect", problems);
+      read_bool(item, "invert", port.invert, base + "invert", problems);
+      read_int(item, "cells_per_cycle", port.cells_per_cycle, 0, 8, base + "cells_per_cycle", problems);
+      read_bool(item, "pv2", port.pv2, base + "pv2", problems);
+      read_int(item, "parallel", port.parallel, 0, 10, base + "parallel", problems);
     }
+  }
+  read_text(document, "profile", s.profile, 8, "profile", problems);
+  if (const json::Value* mux = document.get("mux"); mux != nullptr) {
+    if (!mux->is_array() || mux->items.size() > kMuxGroups) bad(problems, "mux", "invalid");
+    else for (std::size_t i = 0; i < mux->items.size(); ++i) {
+      const json::Value& item = mux->items[i];
+      const std::string base = "mux." + std::to_string(i) + ".";
+      if (!item.is_object()) { bad(problems, base + "tx", "invalid"); continue; }
+      MuxGroup& group = s.mux[i];
+      read_int(item, "tx", group.tx, -1, board::kLastGpio, base + "tx", problems);
+      read_int(item, "rx", group.rx, -1, board::kLastGpio, base + "rx", problems);
+      read_int(item, "s0", group.s0, -1, board::kLastGpio, base + "s0", problems);
+      read_int(item, "s1", group.s1, -1, board::kLastGpio, base + "s1", problems);
+      read_int(item, "channels", group.channels, 1, 4, base + "channels", problems);
+    }
+  }
+  if (const json::Value* leds = document.get("leds"); leds != nullptr && leds->is_object()) {
+    read_int(*leds, "data", s.leds.data, -1, board::kLastGpio, "leds.data", problems);
+    read_int(*leds, "clock", s.leds.clock, -1, board::kLastGpio, "leds.clock", problems);
+    read_int(*leds, "latch", s.leds.latch, -1, board::kLastGpio, "leds.latch", problems);
   }
   if (const json::Value* web = document.get("web"); web != nullptr && web->is_object()) {
     if (!read_choice<WebMode>(*web, "mode", {{"http", WebMode::kHttp}, {"both", WebMode::kBoth}, {"https", WebMode::kHttps}}, s.web)) bad(problems, "web.mode", "invalid");
@@ -391,10 +463,36 @@ inline Problems validate(const Settings& s) {
     if (!board::assignable(gpio)) { bad(problems, path, "reserved"); return; }
     if (!claims.claim(gpio, who)) bad(problems, path, "conflict");
   };
+  if (s.profile != "direct" && s.profile != "mux") bad(problems, "profile", "invalid");
+  const bool mux = profile_is_mux(s.profile);
+  if (mux) {
+    // the base board: each group's UART pins and select pins, and the LEDs' three pins, are claimed once; the ports have no pins of their own
+    static const char* const kGroupNames[kMuxGroups] = {"mux-A", "mux-B", "mux-C"};
+    for (std::size_t g = 0; g < kMuxGroups; ++g) {
+      const MuxGroup& group = s.mux[g];
+      const std::string base = "mux." + std::to_string(g) + ".";
+      if (group.channels < 1 || group.channels > 4) { bad(problems, base + "channels", "range"); continue; }
+      if (group.tx < 0) bad(problems, base + "tx", "required"); else claim(group.tx, kGroupNames[g], base + "tx");
+      if (group.rx < 0) bad(problems, base + "rx", "required"); else claim(group.rx, kGroupNames[g], base + "rx");
+      if (group.s0 < 0) bad(problems, base + "s0", "required"); else claim(group.s0, kGroupNames[g], base + "s0");
+      if (group.channels > 2) { if (group.s1 < 0) bad(problems, base + "s1", "required"); else claim(group.s1, kGroupNames[g], base + "s1"); }
+      else if (group.s1 >= 0) claim(group.s1, kGroupNames[g], base + "s1");
+    }
+    if (s.leds.any()) {
+      if (s.leds.data < 0) bad(problems, "leds.data", "required"); else claim(s.leds.data, "leds", "leds.data");
+      if (s.leds.clock < 0) bad(problems, "leds.clock", "required"); else claim(s.leds.clock, "leds", "leds.clock");
+      if (s.leds.latch < 0) bad(problems, "leds.latch", "required"); else claim(s.leds.latch, "leds", "leds.latch");
+    }
+  }
+  const std::size_t mux_ports = mux_port_count(s.mux);
   for (std::size_t i = 0; i < kPortCount; ++i) {
     const PortConfig& port = s.ports[i];
     if (!port.enabled) continue;
     const std::string base = "ports." + std::to_string(i) + ".", who = "port" + std::to_string(i + 1);
+    if (mux && i >= mux_ports) { bad(problems, base + "enabled", "not_in_profile"); continue; }
+    if (port.invert && !mux && is_soft_port(i)) bad(problems, base + "invert", "invalid");
+    if (port.cells_per_cycle < 0 || port.cells_per_cycle > 8) bad(problems, base + "cells_per_cycle", "range");
+    if ((port.pv2 || port.parallel != 0) && (port.kind != "voltronic" || port.dialect == "revo" || port.dialect == "pi18")) bad(problems, port.pv2 ? base + "pv2" : base + "parallel", "invalid");   // only the standard dialect has QPIGS2 and QPGS
     Kind kind = Kind::kVoltronic;
     const bool kind_ok = kind_from_text(port.kind, kind);
     if (!kind_ok) bad(problems, base + "kind", "invalid");
@@ -402,12 +500,15 @@ inline Problems validate(const Settings& s) {
     if (!valid_device_name(port.name)) bad(problems, base + "name", port.name.empty() ? "required" : "invalid");
     else if (std::find(names.begin(), names.end(), port.name) != names.end()) bad(problems, base + "name", "conflict");
     else names.push_back(port.name);
-    const std::vector<int>& speeds = allowed_bauds(is_soft_port(i));
+    const bool soft = !mux && is_soft_port(i);   // in the mux profile every port is served by a hardware UART
+    const std::vector<int>& speeds = allowed_bauds(soft);
     const int baud = kind_ok ? effective_baud(port) : port.baud;
-    if (kind_ok && std::find(speeds.begin(), speeds.end(), baud) == speeds.end()) bad(problems, base + "baud", is_soft_port(i) ? "too_fast_for_emulated" : "range");
-    if (port.rx < 0) bad(problems, base + "rx", "required"); else claim(port.rx, who, base + "rx");
-    if (port.tx >= 0) claim(port.tx, who, base + "tx"); else if (kind_ok && info_of(kind).needs_tx) bad(problems, base + "tx", "required");
-    if (port.de >= 0) claim(port.de, who, base + "de");
+    if (kind_ok && std::find(speeds.begin(), speeds.end(), baud) == speeds.end()) bad(problems, base + "baud", soft ? "too_fast_for_emulated" : "range");
+    if (!mux) {
+      if (port.rx < 0) bad(problems, base + "rx", "required"); else claim(port.rx, who, base + "rx");
+      if (port.tx >= 0) claim(port.tx, who, base + "tx"); else if (kind_ok && info_of(kind).needs_tx) bad(problems, base + "tx", "required");
+      if (port.de >= 0) claim(port.de, who, base + "de");
+    }
     if (port.poll_s != 0 && (port.poll_s < 2 || port.poll_s > 3600)) bad(problems, base + "poll_s", "range");
   }
   return problems;
@@ -437,9 +538,15 @@ inline std::string to_json(const Settings& s, bool secrets) {
   w.key("ports").begin_array();
   for (const PortConfig& port : s.ports) {
     w.begin_object().field("enabled", port.enabled).field("kind", port.kind).field("name", port.name).field("baud", port.baud).field("rx", port.rx).field("tx", port.tx)
-        .field("de", port.de).field("poll_s", port.poll_s).field("modules", port.modules).field("dialect", port.dialect).end_object();
+        .field("de", port.de).field("poll_s", port.poll_s).field("modules", port.modules).field("dialect", port.dialect).field("invert", port.invert)
+        .field("cells_per_cycle", port.cells_per_cycle).field("pv2", port.pv2).field("parallel", port.parallel).end_object();
   }
   w.end_array();
+  w.field("profile", s.profile);
+  w.key("mux").begin_array();
+  for (const MuxGroup& group : s.mux) w.begin_object().field("tx", group.tx).field("rx", group.rx).field("s0", group.s0).field("s1", group.s1).field("channels", group.channels).end_object();
+  w.end_array();
+  w.key("leds").begin_object().field("data", s.leds.data).field("clock", s.leds.clock).field("latch", s.leds.latch).end_object();
   w.key("web").begin_object().field("mode", to_text(s.web)).end_object();
   w.key("ble").begin_object().field("mode", to_text(s.ble)).end_object();
   w.key("ui").begin_object().field("language", s.language).end_object();

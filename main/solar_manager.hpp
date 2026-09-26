@@ -12,7 +12,7 @@ namespace armor::manager {
 
 using Publish = std::function<void(const std::string& topic, const std::string& payload)>;
 
-// Starts a task for every enabled port. `publish` gets each reading (topic, JSON).
+// Starts a task for every enabled port (in the mux profile, one for every group that has an enabled port: the ports of a group take turns on its UART). `publish` gets each reading (topic, JSON).
 void start(const config::Settings& settings, Publish publish);
 
 struct PortStatus {
@@ -21,6 +21,9 @@ struct PortStatus {
   bool soft = false;
   std::string kind, name;
   int baud = 0, rx = -1, tx = -1, de = -1, poll_s = 0;
+  int group = -1;             // the mux profile: the group of ports this one belongs to (0 to 2: A, B, C), or -1 when the port has pins of its own
+  int channel = 0;            // ... and its channel on the group's multiplexer
+  bool invert = false;        // the port's line is flipped
   std::string state;          // disabled, starting, error, waiting, reporting, silent, garbled, listening
   std::string error;          // why the port did not open, or the last error of an exchange
   std::string detail;   // what the equipment said besides the readings (an ANT-BMS: the protocol and its MOSFET codes)
@@ -40,6 +43,18 @@ struct BmsSettingsStatus {
 // has no settings request here) or busy.
 std::string start_bms_settings(std::size_t index);
 BmsSettingsStatus bms_settings(std::size_t index);
+
+// Asking a Pylontech battery's console one question that only reads (core/console_probe.hpp), from the panel: what the battery answers is shown as it came. One at a time per port,
+// run by the port's own task, which pauses its readings meanwhile. Returns "" when it started, or why not: no_port, not_pylontech, not_allowed, busy.
+struct ConsoleStatus {
+  std::string state = "idle";   // idle, running, done, error
+  std::string command;          // what was asked, as it went on the wire
+  std::string text;             // what the battery answered (what came, when it did not finish)
+  std::string error;            // when state is error: timeout
+  bool truncated = false;
+};
+std::string start_console(std::size_t index, const std::string& command);
+ConsoleStatus console_status(std::size_t index);
 
 // The last bytes a port received, as hexadecimal lines with the printable characters beside them.
 std::string raw_dump(std::size_t index);

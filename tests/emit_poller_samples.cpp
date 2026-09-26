@@ -47,6 +47,15 @@ int main() {
   Poller inverter_port(config::Kind::kVoltronic, "solar-1", "axpert-1", 5, 0);
   run(inverter_port, inverter, 11000);
 
+  // an inverter with a second PV input, in a parallel system of two units
+  std::map<std::string, std::vector<std::uint8_t>> big = inverter;
+  big["QPIGS2"] = reply("03.1 327.3 01026");
+  big["QPGS0"] = reply("1 92931701100510 B 00 000.0 00.00 230.6 50.00 0275 0141 005 51.4 001 100 083.3 002 00574 00312 003 10100110 1 2 060 120 10 04 000");
+  big["QPGS1"] = reply("1 92931701100511 L 00 231.0 50.00 230.6 50.00 0299 0171 006 51.4 001 100 084.0 002 00574 00312 003 10100110 1 2 060 120 10 04 000");
+  Poller big_port(config::Kind::kVoltronic, "solar-1", "axpert-big", 5, 0, "pi30");
+  big_port.set_optional(true, 2);
+  run(big_port, big, 11000);
+
   std::string bat = "@\r\nBattery  Volt     Curr     Tempr    Base State   Volt. State  Curr. State  Temp. State  Coulomb\r\n";
   for (int i = 0; i < 15; ++i) bat += std::to_string(i) + " " + std::to_string(3324 + (i * 7) % 25) + " -1281 22000 Dischg Normal Normal Normal 88%\r\n";
   bat += "Command completed successfully\r\n$$\r\npylon>";

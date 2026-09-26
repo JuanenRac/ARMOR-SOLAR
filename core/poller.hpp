@@ -92,8 +92,11 @@ class Poller {
   static constexpr std::uint64_t kAntTimeoutMs = 2000;
   static constexpr std::uint64_t kExtrasRefreshMs = 30ULL * 60ULL * 1000ULL;   // how long the identity and the history of a module are kept
 
-  Poller(config::Kind kind, std::string node_id, std::string device, int poll_s, int max_modules, const std::string& dialect = "auto")
-      : kind_(kind), node_id_(std::move(node_id)), device_(std::move(device)), poll_ms_(static_cast<std::uint64_t>(poll_s) * 1000ULL), max_modules_(max_modules > 0 ? max_modules : 8) {
+  // `cells_per_cycle`: a Pylontech stack of several modules takes long to read cell by cell on a line that other ports share; with a number here (1 to 8) each cycle reads the
+  // cells of that many modules, in rotation, and the others keep the cells of their last turn. 0 (the default): every module every cycle.
+  Poller(config::Kind kind, std::string node_id, std::string device, int poll_s, int max_modules, const std::string& dialect = "auto", int cells_per_cycle = 0)
+      : kind_(kind), node_id_(std::move(node_id)), device_(std::move(device)), poll_ms_(static_cast<std::uint64_t>(poll_s) * 1000ULL), max_modules_(max_modules > 0 ? max_modules : 8),
+        cells_per_cycle_(cells_per_cycle > 0 ? cells_per_cycle : 0) {
     if (dialect == "pi18") { dialect_ = Dialect::kPi18; auto_ = false; }
     else if (dialect == "revo") { dialect_ = Dialect::kRevo; auto_ = false; }
     else if (dialect == "pi30") auto_ = false;
@@ -119,6 +122,19 @@ class Poller {
     return out;
   }
 
+  // Optional readings of an inverter in the standard dialect, asked after the three that make the message and never at the cost of them: the second PV input (QPIGS2; an
+  // inverter that has only one answers NAK, and after two misses it is not asked again) and the units of a parallel system (QPGS0 to QPGS<n-1>; a unit that is not there is skipped).
+  void set_optional(bool pv2, int parallel_units) { pv2_wanted_ = pv2; parallel_ = parallel_units < 0 ? 0 : parallel_units > 10 ? 10 : parallel_units; }
+  // Whether the second PV input has answered (in the last cycle), and what it said.
+  bool has_pv2() const { return has_pv2_; }
+
+  // Whether an exchange is under way (a request waits for its answer, or one is about to go out): a line shared with other ports keeps its channel on this one until it is over.
+  bool busy() const { return step_ != Step::kIdle || !pending_.empty(); }
+  // Whether the next cycle is due and nothing stands in its way (a reading not taken yet is not overwritten). A raw port never asks, so it is never due.
+  bool due(std::uint64_t now_ms) const { return kind_ != config::Kind::kRaw && step_ == Step::kIdle && !ready_ && pending_.empty() && now_ms >= next_cycle_ms_; }
+  // Whether a whole reading waits to be taken.
+  bool ready() const { return ready_; }
+
   // Bytes that arrived.
   void on_rx(const std::uint8_t* data, std::size_t length, std::uint64_t now_ms) {
     if (length == 0) return;
@@ -136,7 +152,7 @@ class Poller {
     ready_ = false;
     topic = solar::topic(node_id_, device_);
     if (topic.empty()) return false;
-    if (kind_ == config::Kind::kVoltronic) payload = inverter_json(node_id_, device_, wall_ms, mode_, status_, warnings_);
+    if (kind_ == config::Kind::kVoltronic) { InverterExtras extras; extras.has_pv2 = has_pv2_; extras.pv2 = pv2_; extras.units = units_; payload = inverter_json(node_id_, device_, wall_ms, mode_, status_, warnings_, &extras); }
     else payload = battery_json(node_id_, device_, wall_ms, modules_);   // a Pylontech stack or an ANT-BMS (one module)
     last_payload_ = payload;
     ++stats_.readings;
@@ -174,7 +190,7 @@ class Poller {
   std::uint64_t last_rx_ms() const { return last_rx_ms_; }
 
  private:
-  enum class Step { kIdle, kQpigs, kQmod, kQpiws, kGs, kMod, kFws, kPwr, kBat, kInfo, kStat, kAnt };
+  enum class Step { kIdle, kQpigs, kQmod, kQpiws, kQpigs2, kQpgs, kGs, kMod, kFws, kPwr, kBat, kInfo, kStat, kAnt };
   enum class Dialect { kPi30, kRevo, kPi18 };
 
   void send(std::string_view text, std::uint64_t now_ms, std::uint64_t timeout_ms) {
@@ -201,6 +217,8 @@ class Poller {
     } else if (kind_ == config::Kind::kVoltronic) {
       mode_ = 0;
       warnings_.clear();
+      has_pv2_ = false;
+      units_.clear();
       if (dialect_ == Dialect::kPi18) { step_ = Step::kGs; send_query("GS", now_ms); }
       else { step_ = Step::kQpigs; send_query("QPIGS", now_ms); }
     } else {
@@ -264,6 +282,7 @@ class Poller {
       if (looking && crc_ok) switch_to(Dialect::kPi30, now_ms);
       return;
     }
+    if (step_ == Step::kQpigs2 || step_ == Step::kQpgs) { on_optional(crc_ok, text, now_ms); return; }
     if (!crc_ok) {
       // only the REVO dialect ends a reply with the checksum: a reply that fits it (and no CRC) makes the port REVO
       if ((dialect_ == Dialect::kRevo || looking) && voltronic::parse_reply_revo(frame.data(), frame.size(), text)) { learn(Dialect::kRevo); }
@@ -287,8 +306,44 @@ class Poller {
       if (!voltronic::parse_qpiws(text, warnings_)) { fail("format", now_ms); return; }
       ++stats_.replies_ok;
       stats_.last_error.clear();
-      finish(now_ms);
+      after_main_readings(now_ms);
     }
+  }
+
+  // ---- the optional readings (standard dialect only) ----
+  bool want_pv2() const { return pv2_wanted_ && !pv2_absent_ && dialect_ == Dialect::kPi30 && known_; }
+  // The three readings that make the message are in: the second PV input and the parallel units are asked if they are wanted, and the reading goes out either way.
+  void after_main_readings(std::uint64_t now_ms) {
+    if (want_pv2()) { step_ = Step::kQpigs2; send_query("QPIGS2", now_ms); return; }
+    begin_units(now_ms);
+  }
+  void begin_units(std::uint64_t now_ms) {
+    unit_at_ = 0;
+    if (parallel_ > 0 && dialect_ == Dialect::kPi30 && known_) { ask_unit(now_ms); return; }
+    finish(now_ms);
+  }
+  void ask_unit(std::uint64_t now_ms) {
+    if (unit_at_ >= parallel_) { finish(now_ms); return; }
+    step_ = Step::kQpgs;
+    send_query(("QPGS" + std::to_string(unit_at_)).c_str(), now_ms);
+  }
+  void miss_pv2(std::uint64_t now_ms) {
+    has_pv2_ = false;
+    if (++pv2_misses_ >= 2) pv2_absent_ = true;
+    begin_units(now_ms);
+  }
+  // An answer to QPIGS2 or QPGS<n>: anything but a good one skips that step, and never spoils the reading.
+  void on_optional(bool crc_ok, const std::string& text, std::uint64_t now_ms) {
+    if (step_ == Step::kQpigs2) {
+      voltronic::Pv2 v;
+      if (crc_ok && text != "NAK" && voltronic::parse_qpigs2(text, v)) { pv2_ = v; has_pv2_ = true; pv2_misses_ = 0; ++stats_.replies_ok; begin_units(now_ms); }
+      else miss_pv2(now_ms);
+      return;
+    }
+    voltronic::ParallelUnit u;
+    if (crc_ok && text != "NAK" && voltronic::parse_qpgs(text, u)) { u.number = unit_at_; units_.push_back(u); ++stats_.replies_ok; }
+    ++unit_at_;
+    ask_unit(now_ms);
   }
 
   void on_pi18_frame(const std::vector<std::uint8_t>& frame, std::uint64_t now_ms) {
@@ -325,12 +380,7 @@ class Poller {
   // The console ends every answer, a good one or a refusal ("Invalid command or fail to excute."), with a line of `$$` and its prompt (`pylon>` or `pylon_debug>`):
   // the answer is whole when the text ends in that prompt. Waiting for it also leaves nothing of this answer to be taken for the next one, and a command the battery does
   // not know is over at once instead of after the timeout.
-  static bool console_done(const std::string& text) {
-    const std::size_t end = text.find_last_not_of(" \r\n\t");
-    if (end == std::string::npos || text[end] != '>') return false;
-    const std::size_t marker = text.rfind("$$");
-    return marker != std::string::npos && marker < end;
-  }
+  static bool console_done(const std::string& text) { return pylontech::console_done(text); }
 
   void ask_next_module(std::uint64_t now_ms) {
     // the next module that is there, in order, up to the limit
@@ -340,9 +390,41 @@ class Poller {
       ++module_at_;
     }
     if (module_at_ >= modules_.size()) { finish(now_ms); return; }
+    const int number = modules_[module_at_].number;
+    if (!(cells_wanted_ & (1u << number))) {
+      // not this module's turn: it keeps the cells of its last one
+      const CellsCache& cache = cells_cache_[static_cast<std::size_t>(number)];
+      pylontech::attach_cells(modules_, number, cache.cells);
+      if (cache.remaining_ah >= 0) modules_[module_at_].capacity_ah = cache.remaining_ah;
+      after_bat(now_ms);
+      return;
+    }
     step_ = Step::kBat;
     buffer_.clear();
-    send("bat " + std::to_string(modules_[module_at_].number) + "\r", now_ms, kConsoleExtraTimeoutMs);
+    send("bat " + std::to_string(number) + "\r", now_ms, kConsoleExtraTimeoutMs);
+  }
+
+  // Which modules' cells are asked in this cycle: all of them, or the next `cells_per_cycle_` present ones in rotation (and any that has no cells yet).
+  void choose_cells_to_read() {
+    std::vector<int> numbers;
+    for (const pylontech::Module& m : modules_) if (m.present && m.number >= 1 && m.number <= max_modules_ && m.number <= 16) numbers.push_back(m.number);
+    std::sort(numbers.begin(), numbers.end());
+    cells_wanted_ = 0;
+    if (numbers.empty()) return;
+    if (cells_per_cycle_ <= 0 || static_cast<std::size_t>(cells_per_cycle_) >= numbers.size()) {
+      for (int n : numbers) cells_wanted_ |= 1u << n;
+      return;
+    }
+    std::size_t start = 0;
+    while (start < numbers.size() && numbers[start] < bat_cursor_) ++start;
+    if (start >= numbers.size()) start = 0;
+    int last = numbers[start];
+    for (int k = 0; k < cells_per_cycle_; ++k) {
+      last = numbers[(start + static_cast<std::size_t>(k)) % numbers.size()];
+      cells_wanted_ |= 1u << last;
+    }
+    bat_cursor_ = last + 1;
+    for (int n : numbers) if (cells_cache_[static_cast<std::size_t>(n)].cells.empty()) cells_wanted_ |= 1u << n;
   }
 
   void rx_pylontech(const std::uint8_t* data, std::size_t length, std::uint64_t now_ms) {
@@ -357,6 +439,7 @@ class Poller {
       stats_.last_error.clear();
       modules_ = found;
       module_at_ = 0;
+      choose_cells_to_read();
       ask_next_module(now_ms);
     } else if (step_ == Step::kBat) {
       std::vector<double> cells;
@@ -364,6 +447,9 @@ class Poller {
       if (pylontech::parse_bat(buffer_, cells, &remaining_ah) > 0) {
         pylontech::attach_cells(modules_, modules_[module_at_].number, cells);
         if (remaining_ah >= 0) modules_[module_at_].capacity_ah = remaining_ah;
+        CellsCache& cache = cells_cache_[static_cast<std::size_t>(modules_[module_at_].number)];
+        cache.cells = cells;
+        cache.remaining_ah = remaining_ah;
         ++stats_.replies_ok;
       }
       after_bat(now_ms);
@@ -438,7 +524,17 @@ class Poller {
   // else gives the cycle up, and the next one starts at the next poll.
   void on_timeout(std::uint64_t now_ms) {
     ++stats_.timeouts;
-    if (step_ == Step::kBat) { after_bat(now_ms); return; }
+    if (step_ == Step::kBat) {
+      // a module that did not answer for its cells keeps the ones of its last turn
+      const int number = modules_[module_at_].number;
+      const CellsCache& cache = cells_cache_[static_cast<std::size_t>(number)];
+      if (!cache.cells.empty()) pylontech::attach_cells(modules_, number, cache.cells);
+      if (cache.remaining_ah >= 0) modules_[module_at_].capacity_ah = cache.remaining_ah;
+      after_bat(now_ms);
+      return;
+    }
+    if (step_ == Step::kQpigs2) { miss_pv2(now_ms); return; }
+    if (step_ == Step::kQpgs) { ++unit_at_; ask_unit(now_ms); return; }
     if (step_ == Step::kInfo) { ask_stat(now_ms); return; }
     if (step_ == Step::kStat) { end_extras(now_ms); return; }
     stats_.last_error = "timeout";
@@ -463,6 +559,11 @@ class Poller {
   std::string node_id_, device_;
   std::uint64_t poll_ms_;
   int max_modules_;
+  int cells_per_cycle_ = 0;
+  int bat_cursor_ = 1;                // the module whose cells come next in the rotation
+  std::uint32_t cells_wanted_ = 0;    // bit n: this cycle asks the cells of module n
+  struct CellsCache { std::vector<double> cells; double remaining_ah = -1; };
+  std::array<CellsCache, 17> cells_cache_;   // by module number: the cells and remaining charge of the module's last turn
   Step step_ = Step::kIdle;
   std::uint64_t deadline_ms_ = 0, next_cycle_ms_ = 0, cycle_started_ms_ = 0, last_rx_ms_ = 0, last_reading_ms_ = 0;
   std::vector<std::uint8_t> pending_;
@@ -473,6 +574,11 @@ class Poller {
   bool auto_ = true, known_ = false;   // "auto": the dialect is looked for; known: it answered (or it was chosen)
   int misses_ = 0;
   voltronic::Status status_;
+  bool pv2_wanted_ = false, pv2_absent_ = false, has_pv2_ = false;
+  int pv2_misses_ = 0;
+  voltronic::Pv2 pv2_;
+  int parallel_ = 0, unit_at_ = 0;
+  std::vector<voltronic::ParallelUnit> units_;
   char mode_ = 0;
   std::vector<std::string> warnings_;
   std::vector<pylontech::Module> modules_;

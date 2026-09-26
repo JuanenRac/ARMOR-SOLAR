@@ -1,7 +1,7 @@
-// ARMOR-SOLAR - the node's link to the broker: the clock and the solar messages of its ports.
+// ARMOR-SOLAR - the node's link to the broker: the clock and the messages the node publishes.
 // Copyright (C) 2026 JuanenRac (Electro Hobby 3D). GPL-3.0-or-later.
 //
-// The node publishes the readings of its ports as they are made (armor/solar/<node>/<device>/state, JSON, QoS 0, not retained: the server keeps the latest
+// The node publishes what it reads as it is read (armor/<family>/<node>/..., JSON, QoS 0, not retained: the server keeps the latest
 // reading and marks a device stale when it stops). It sends nothing until the network, the clock and the broker are all there.
 #include "mqtt_link.hpp"
 

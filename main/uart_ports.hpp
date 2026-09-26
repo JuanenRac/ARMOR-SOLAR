@@ -13,6 +13,7 @@ struct Options {
   int baud = 2400;
   int rx = -1, tx = -1;
   int de = -1;             // driver-enable (and receiver-enable) of an RS485 transceiver: high while the node sends
+  bool invert = false;     // the signals arrive upside down (a hardware UART flips them)
 };
 
 // One open port. 8 data bits, no parity, one stop bit.
@@ -27,6 +28,10 @@ class Port {
   // How many edges or bytes the port had to drop because nobody read them in time (a busy node).
   virtual std::uint32_t overruns() const = 0;
   virtual std::uint32_t framing_errors() const = 0;
+  // Changes the speed and the polarity of the line (a hardware UART only: a group of ports that share it needs each port's own). False when the port cannot.
+  virtual bool set_line(int baud, bool invert) { (void)baud; (void)invert; return false; }
+  // Drops whatever the port holds unread.
+  virtual void discard() {}
 };
 
 // Opens a port, or returns nullptr with the reason in `error` ("busy", "driver", "pins", "baud").

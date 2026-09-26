@@ -48,7 +48,9 @@ void write_port(json::Writer& w, std::size_t index) {
   w.begin_object().field("port", s.number).field("enabled", s.enabled).field("soft", s.soft).field("kind", s.kind).field("name", s.name).field("baud", s.baud).field("rx", s.rx).field("tx", s.tx)
       .field("de", s.de).field("poll_s", s.poll_s).field("state", s.state).field("error", s.error).field("bytes_rx", static_cast<long long>(s.bytes_rx)).field("bytes_tx", static_cast<long long>(s.bytes_tx))
       .field("replies_ok", static_cast<long long>(s.replies_ok)).field("replies_bad", static_cast<long long>(s.replies_bad)).field("timeouts", static_cast<long long>(s.timeouts))
-      .field("readings", static_cast<long long>(s.readings)).field("overruns", static_cast<long long>(s.overruns)).field("framing_errors", static_cast<long long>(s.framing_errors));
+      .field("readings", static_cast<long long>(s.readings)).field("overruns", static_cast<long long>(s.overruns)).field("framing_errors", static_cast<long long>(s.framing_errors))
+      .field("invert", s.invert);
+  if (s.group >= 0) w.field("group", std::string(1, static_cast<char>('A' + s.group))).field("channel", s.channel + 1);
   if (!s.detail.empty()) w.field("detail", s.detail);
   if (!s.last_payload.empty()) w.key("reading").raw(s.last_payload);
   w.end_object();

@@ -419,6 +419,30 @@ esp_err_t get_bms_settings(httpd_req_t* r) {
   return send_json(r, 200, w.str());
 }
 
+// Asking a Pylontech battery's console a question that only reads (an allow-list, core/console_probe.hpp): POST starts it, GET says how it goes and gives the answer.
+esp_err_t post_console(httpd_req_t* r) {
+  Who who;
+  if (!require(r, who, true, true)) return ESP_OK;
+  const long number = query_port(r);
+  if (number < 1 || number > static_cast<long>(config::kPortCount)) return send_error(r, 422, "invalid_port");
+  json::Value in;
+  if (!read_json(r, in)) return ESP_OK;
+  const std::string why = manager::start_console(static_cast<std::size_t>(number - 1), in.string_or("command", ""));
+  if (!why.empty()) return send_error(r, why == "busy" ? 409 : 422, why.c_str());
+  return send_json(r, 202, "{\"ok\":true}");
+}
+
+esp_err_t get_console(httpd_req_t* r) {
+  Who who;
+  if (!require(r, who, true, false)) return ESP_OK;
+  const long number = query_port(r);
+  if (number < 1 || number > static_cast<long>(config::kPortCount)) return send_error(r, 422, "invalid_port");
+  const manager::ConsoleStatus s = manager::console_status(static_cast<std::size_t>(number - 1));
+  json::Writer w;
+  w.begin_object().field("port", static_cast<int>(number)).field("state", s.state).field("command", s.command).field("error", s.error).field("text", s.text).field("truncated", s.truncated).end_object();
+  return send_json(r, 200, w.str());
+}
+
 // What a port has heard, as hexadecimal lines: to look at a protocol that is not decoded yet, or to see what an inverter really answers.
 esp_err_t get_port_raw(httpd_req_t* r) {
   Who who;
@@ -605,6 +629,7 @@ esp_err_t api_handler(httpd_req_t* r) {
     if (route == "readings") return get_readings(r);
     if (route == "ports/raw") return get_port_raw(r);
     if (route == "ports/ant-settings") return get_bms_settings(r);
+    if (route == "ports/console") return get_console(r);
     if (route == "users") return get_users(r);
     if (route == "log") return get_log(r);
   } else if (method == HTTP_POST) {
@@ -613,6 +638,7 @@ esp_err_t api_handler(httpd_req_t* r) {
     if (route == "logout") return post_logout(r);
     if (route == "users") return post_user(r);
     if (route == "ports/ant-settings") return post_bms_settings(r);
+    if (route == "ports/console") return post_console(r);
     if (route == "reboot") return post_reboot(r);
     if (route == "factory-reset") return post_factory_reset(r);
     if (route == "ota") return post_ota(r);

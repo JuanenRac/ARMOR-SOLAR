@@ -23,6 +23,12 @@ capability matrix in ARMOR-DOCS).
   on newer models, the PV charging power. An older reply without the power gets it from voltage times current.
 - The names of the `QPIWS` flags follow the public document (32 to 36 flags: PV loss, battery derating and the *battery weak* and equalisation bits included); a bit that the document calls reserved has no name and is never reported.
 
+### Optional readings (standard dialect only, off by default)
+
+- **`QPIGS2`, the second PV input** (setting *Read the second PV input*): the answer is `(03.1 327.3 01026 ` (the current in A, the voltage in V and the power in W), and the reading then carries `pv2_v`, `pv2_a` and `pv2_w`, with `pv_w` as the **sum** of both inputs. An inverter with one input answers NAK (or nothing): after two misses it is not asked again, and the reading is never lost for it.
+- **`QPGS0` to `QPGS<n-1>`, the units of a parallel system** (setting *Units of a parallel system to read*, 0 to 10): each answer is `(1 92931701100510 B 00 000.0 00.00 230.6 50.00 0275 0141 005 51.4 001 100 083.3 002 00574 00312 003 ...` (whether the unit is there, its serial number, mode and fault code, the grid and the output, its battery figures, the PV voltage, the totals of the whole system, then bits and settings that are not used). The reading then lists `units` (one entry per unit that answers: a unit that is not there, or does not answer, is skipped) and the totals `total_out_w`, `total_out_va`, `total_load_percent` and `total_charging_a`. The port's own inverter is read as always.
+- Both come from the mpp-solar project's list of commands and its sample replies (the tests use them); firmwares add fields at the end of `QPGS`, which is why only the first nineteen are read. **No inverter with two inputs, and no parallel system, has been met.**
+
 ### Dialects (chosen by the port's *Protocol* setting; read only in all of them)
 
 - **PI30** is the one above. **auto** asks in PI30 and, after a silence, in PI18, and keeps the one that answered; a whole reply of the other dialect (even `^0` or `(NAK`) switches at once, and three silences make it look again.
@@ -107,6 +113,8 @@ parameters, the password) can disconnect a battery under load and are left out o
 read and configure it); the node uses the cable, which is the more stable of the two.
 
 ## Honest limits
+
+- The Pylontech console has a `pwrsys` command (a summary of the whole system) whose output could not be found in any public description, so it is **not read**: a port that asked for it would be guessing its format. The panel's *Ask the battery* (see NODE_FIRMWARE.md) shows what it answers on a real battery, and with that answer at hand it is a small parser to add.
 
 - The exact text of the console differs between firmware versions: the columns are found by the header's names, but a row that lacks a column the reading needs (voltage, current, temperatures, cell extremes, the four states, the charge) is refused rather than guessed. The `pwrsys` command of the newer firmwares (the stack's own totals) is not read.
 - The scaling of the RS485 analogue values differs between versions of Pylontech's document; the frame is built and checked here, the values are not read.

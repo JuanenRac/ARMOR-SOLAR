@@ -54,6 +54,7 @@ class HardwarePort final : public Port {
     if (uart_param_config(uart_, &config) != ESP_OK) { error = "baud"; uart_driver_delete(uart_); return false; }
     if (uart_set_pin(uart_, o.tx >= 0 ? o.tx : UART_PIN_NO_CHANGE, o.rx, o.de >= 0 ? o.de : UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) { error = "pins"; uart_driver_delete(uart_); return false; }
     if (o.de >= 0 && uart_set_mode(uart_, UART_MODE_RS485_HALF_DUPLEX) != ESP_OK) { error = "driver"; uart_driver_delete(uart_); return false; }
+    if (o.invert && uart_set_line_inverse(uart_, UART_SIGNAL_RXD_INV | UART_SIGNAL_TXD_INV) != ESP_OK) { error = "driver"; uart_driver_delete(uart_); return false; }
     return true;
   }
 
@@ -71,6 +72,11 @@ class HardwarePort final : public Port {
   bool soft() const override { return false; }
   std::uint32_t overruns() const override { return 0; }
   std::uint32_t framing_errors() const override { return 0; }
+  bool set_line(int baud, bool invert) override {
+    if (uart_set_baudrate(uart_, static_cast<std::uint32_t>(baud)) != ESP_OK) return false;
+    return uart_set_line_inverse(uart_, invert ? (UART_SIGNAL_RXD_INV | UART_SIGNAL_TXD_INV) : UART_SIGNAL_INV_DISABLE) == ESP_OK;
+  }
+  void discard() override { uart_flush_input(uart_); }
 
  private:
   uart_port_t uart_;

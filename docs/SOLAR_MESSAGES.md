@@ -21,6 +21,8 @@ armor/solar/<node>/<device>/state        JSON, one message per device, every few
 `mode` is `power_on`, `standby`, `line`, `battery`, `fault`, `power_saving`, `shutdown` or `unknown`. `battery_a` is positive while charging.
 `warnings` are the active flags of `QPIWS` by name (see PROTOCOLS.md).
 
+Optional, when the port asks for them (see PROTOCOLS.md): `pv2_v`, `pv2_a` and `pv2_w` (a second PV input; `pv_w` is then the sum of both), and for a parallel system `units` (up to ten entries with `unit`, `mode` and, when known, `serial`, `fault_code`, `grid_v`, `out_v`, `out_va`, `out_w`, `load_percent`, `battery_v`, `battery_percent`, `pv_v` and `charging_a`) with `total_out_w`, `total_out_va`, `total_load_percent` and `total_charging_a`.
+
 ## Battery stack
 
 ```json

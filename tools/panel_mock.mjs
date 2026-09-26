@@ -47,6 +47,9 @@ const config = {
     { enabled: false, kind: "voltronic", name: "port9", baud: 0, rx: 40, tx: 41, de: -1, poll_s: 0, modules: 0, dialect: "auto" },
     { enabled: false, kind: "voltronic", name: "port10", baud: 0, rx: 42, tx: 1, de: -1, poll_s: 0, modules: 0, dialect: "auto" },
   ],
+  profile: process.argv.includes("--mux") ? "mux" : "direct",
+  mux: [{ tx: 15, rx: 16, s0: 17, s1: 18, channels: 4 }, { tx: 1, rx: 2, s0: 38, s1: -1, channels: 2 }, { tx: 40, rx: 41, s0: 42, s1: -1, channels: 2 }],
+  leds: { data: 21, clock: 39, latch: 47 },
   web: { mode: "both" },
   ble: { mode: "setup" },
   ui: { language: "en" },
@@ -76,13 +79,16 @@ const readings = () => [
   { kind: "battery", node_id: config.node.id, device: "ant-6", timestamp_ms: Date.now(), modules: 1, model: "ANT-BMS", state: "idle", voltage_v: 52.84, current_a: 0.3, temperature_min_c: 1, temperature_max_c: 7, cell_min_v: 3.3, cell_max_v: 3.305, soc_percent: 91, alarm: false, capacity_ah: 252.6, full_capacity_ah: 280, energy_kwh: 13.35, cycles: 17,
     stack: [{ n: 1, present: true, voltage_v: 52.84, current_a: 0.3, temperature_c: 3, soc_percent: 91, state: "Idle", capacity_ah: 252.6, full_capacity_ah: 280, cycles: 17, cells_v: cells(3.3, 3).slice(0, 16), temperatures_c: [1, 2, 2, 7] }] },
 ];
+const muxSlot = i => { let first = 0; for (let g = 0; g < 3; ++g) { const size = config.mux[g].channels; if (i < first + size) return { group: g, channel: i - first }; first += size; } return null; };
 const ports = () => config.ports.map((p, i) => {
+  const slot = config.profile === "mux" ? muxSlot(i) : null;
   const state = !p.enabled ? "disabled" : i === 3 ? "silent" : i === 4 ? "listening" : "reporting";
   const on = p.enabled && state !== "silent";
-  return { port: i + 1, enabled: p.enabled, soft: i >= 3, kind: p.kind, name: p.name, baud: p.baud || (p.kind === "pylontech" ? 115200 : p.kind === "ant" ? 19200 : p.kind === "raw" ? 9600 : 2400), rx: p.rx, tx: p.tx, de: p.de, poll_s: 5, state, error: i === 3 ? "timeout" : "",
+  return { port: i + 1, enabled: p.enabled && (config.profile !== "mux" || !!slot), soft: config.profile !== "mux" && i >= 3, invert: !!p.invert, ...(slot ? { group: "ABC"[slot.group], channel: slot.channel + 1 } : {}), kind: p.kind, name: p.name, baud: p.baud || (p.kind === "pylontech" ? 115200 : p.kind === "ant" ? 19200 : p.kind === "raw" ? 9600 : 2400), rx: p.rx, tx: p.tx, de: p.de, poll_s: 5, state, error: i === 3 ? "timeout" : "",
     bytes_rx: on ? 48000 + Math.floor((Date.now() - started) / 100) : 0, bytes_tx: p.enabled && p.kind !== "raw" ? 900 : 0, replies_ok: on && p.kind !== "raw" ? 410 : 0, replies_bad: 1, timeouts: i === 3 ? 42 : 2, readings: on && p.kind !== "raw" ? 136 : 0, overruns: 0, framing_errors: 0, ...(p.kind === "ant" && on ? { detail: "new charge=1 discharge=1 balancer=0 cells=16" } : {}) };
 });
 let antRead = null;
+let consoleAsked = null;
 const antSettings = { model: "16ZM", version: "16ZMUB00-211026A", asked: 57, answered: 57, missing: 0, settings: [["CellOvervoltageProtection", 3.65, "V"], ["CellOvervoltageRecovery", 3.6, "V"], ["PackOvervoltageProtection", 58.4, "V"], ["CellUndervoltageProtection", 2.5, "V"], ["CellUndervoltageRecovery", 2.8, "V"], ["CellVoltageDifferenceProtection", 0.5, "V"], ["ChargeOvercurrentProtection", 150, "A"], ["DischargeOvercurrentProtection", 200, "A"], ["ShortCircuitProtection", 800, "A"], ["SOCLowLevel1Warning", 20, "%"], ["CellBalancingStartVoltage", 3.4, "V"], ["CellNumber", 16, "S"], ["NominalCapacity", 280, "Ah"], ["RemainingCapacity", 252.6, "Ah"], ["TotalCycleCapacity", 4862.65, "Ah"]].map(([name, value, unit], i) => ({ address: i * 2, name, value, unit })) };
 const rawText = "48 65 6C 6C 6F 2C 20 69 6E 76 65 72 74 65 72 0D  |Hello, inverter.|\n0A                                               |.|\n";
 
@@ -106,7 +112,10 @@ const problems = doc => {
   if (doc.ap?.enabled && !String(doc.ap.ssid ?? "").trim()) list.push({ path: "ap.ssid", code: "required" });
   if (doc.ap?.enabled && doc.ap.security !== "open" && doc.ap.password !== undefined && doc.ap.password.length > 0 && doc.ap.password.length < 8) list.push({ path: "ap.password", code: "invalid_key" });
   if (doc.mqtt?.enabled && !/^mqtts?:\/\/.+/.test(doc.mqtt.uri ?? "")) list.push({ path: "mqtt.uri", code: "invalid" });
-  (doc.ports ?? []).forEach((p, i) => { if (i >= 3 && p.enabled && p.baud > 19200) list.push({ path: `ports.${i}.baud`, code: "too_fast_for_emulated" }); });
+  if (doc.profile && !["direct", "mux"].includes(doc.profile)) list.push({ path: "profile", code: "invalid" });
+  const mux = (doc.profile ?? config.profile) === "mux";
+  if (mux) (doc.ports ?? []).forEach((p, i) => { if (p.enabled && !muxSlot(i)) list.push({ path: `ports.${i}.enabled`, code: "not_in_profile" }); });
+  (doc.ports ?? []).forEach((p, i) => { if (!mux && i >= 3 && p.enabled && p.baud > 19200) list.push({ path: `ports.${i}.baud`, code: "too_fast_for_emulated" }); });
   return list;
 };
 
@@ -164,6 +173,22 @@ const server = createServer(async (request, response) => {
   }
   if (method === "GET" && route === "ports") return json(response, 200, { ports: ports(), catalog });
   if (method === "GET" && route === "readings") return json(response, 200, readings());
+  if (route === "ports/console") {
+    const number = Number(url.searchParams.get("port"));
+    if (method === "POST") {
+      if (!needAdmin()) return;
+      const port = config.ports[number - 1];
+      const command = String(body.command ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!port || !port.enabled || port.kind !== "pylontech") return json(response, 422, { error: "not_pylontech" });
+      if (!/^(help|pwr|pwrsys|(bat|info|stat|soh|data) ([1-9]|1[0-6]))$/.test(command)) return json(response, 422, { error: "not_allowed" });
+      if (consoleAsked?.busyUntil > Date.now()) return json(response, 409, { error: "busy" });
+      consoleAsked = { port: number, command, at: Date.now(), busyUntil: Date.now() + 900 };
+      return json(response, 202, { ok: true });
+    }
+    if (!consoleAsked || consoleAsked.port !== number) return json(response, 200, { port: number, state: "idle", command: "", error: "", text: "", truncated: false });
+    if (Date.now() < consoleAsked.busyUntil) return json(response, 200, { port: number, state: "running", command: consoleAsked.command, error: "", text: "", truncated: false });
+    return json(response, 200, { port: number, state: "done", command: consoleAsked.command, error: "", text: "@\r\nSystem Volt   : 51234 mV\r\nSystem Curr   : -3000 mA\r\nCommand completed successfully\r\n$$\r\npylon>", truncated: false });
+  }
   if (route === "ports/ant-settings") {
     const number = Number(url.searchParams.get("port"));
     if (method === "POST") { antRead = { port: number, at: Date.now() }; return json(response, 202, { ok: true }); }

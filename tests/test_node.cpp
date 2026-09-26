@@ -785,7 +785,7 @@ static void test_ten_ports() {
   std::string seven = config::to_json(valid_settings(), true);
   const std::size_t tail = seven.find("{\"enabled\":false,\"kind\":\"voltronic\",\"name\":\"port8\"");
   CHECK(tail != std::string::npos);
-  const std::size_t close = seven.find("],\"web\"");
+  const std::size_t close = seven.find("],\"profile\"");
   CHECK(close != std::string::npos && tail < close);
   seven.erase(tail - 1, close - tail + 1);   // the comma before the eighth port, and the eighth to tenth ports
   config::Settings from_seven;

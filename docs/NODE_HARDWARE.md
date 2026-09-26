@@ -31,6 +31,24 @@ the nodes that see the router well and the PoE one for the rest. A stack of batt
   between the equipment and the node, and keep the node's supply apart from the battery ground. A fault on the battery side then cannot reach the network side.
 - **Cable length:** RS232 is meant for a few metres; for more, use RS485, which reaches hundreds of metres, and put the node near the equipment.
 
+## The LEDs of the base board (one per port, through a 74HC595)
+
+The firmware's *mux* profile lights one LED per port through a **74HC595** shift register on three GPIO (the defaults are settings in the panel):
+
+| 74HC595 pin | Name | Goes to |
+| --- | --- | --- |
+| 16 | VCC | +3V3, with 100 nF to GND next to the chip |
+| 8 | GND | GND |
+| 14 | SER (data) | GPIO 21 |
+| 11 | SRCLK (shift clock) | GPIO 39 |
+| 12 | RCLK (latch) | GPIO 47 |
+| 13 | OE, active low | GND (outputs always on) |
+| 10 | SRCLR, active low | +3V3 (never clears) |
+| 9 | QH' (serial out) | not connected (only for a second register in a chain) |
+| 15, 1, 2, 3, 4, 5, 6, 7 | QA, QB, QC, QD, QE, QF, QG, QH | LED 1 to LED 8 (port 1 to port 8), each through its own resistor |
+
+Each output drives **one resistor and one LED in series, to ground**: output, then a resistor of about 470 ohm (about 2.8 mA from 3.3 V for an ordinary LED; the register may give about 6 mA per output and 70 mA in all), then the LED's anode; the cathode goes to GND. A high output lights the LED (the firmware sends bit 0 to QA, so QA is port 1 and QH is port 8; QA is pin 15, apart from QB to QH on pins 1 to 7). A resistor is never shared between LEDs. The outputs may flicker for a moment when the board is powered, until the node sends its first byte. Not built, not run on a board.
+
 ## What a node reads, and how often
 
 Every 5 to 10 seconds it asks the inverter `QPIGS` and `QMOD`, and less often `QPIWS` (and `QPIRI` once, at start); every 10 to 30 seconds it types `pwr` at the
