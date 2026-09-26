@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../core/ant_bms.hpp"
+#include "../core/ant_settings.hpp"
 #include "../core/auth.hpp"
 #include "../core/netplan.hpp"
 #include "../core/poller.hpp"
@@ -15,6 +16,7 @@
 #include "../core/solar_config.hpp"
 #include "../core/web_policy.hpp"
 #include "ant_frames.hpp"
+#include "ant_settings_frames.hpp"
 
 static int failures = 0;
 static int checks = 0;
@@ -546,6 +548,140 @@ static void test_ten_ports() {
   CHECK(config::load(seven, config::default_settings("000000"), from_seven, problems) && from_seven.ports[9].rx == 42 && from_seven.ports[6].rx == 21);
 }
 
+// ---- reading the ANT-BMS settings (read only) ---------------------------------------------------------------------------------------------
+
+static std::vector<std::uint8_t> hex_bytes(const std::string& text) {
+  std::vector<std::uint8_t> out;
+  for (std::size_t i = 0; i + 1 < text.size(); i += 2) out.push_back(static_cast<std::uint8_t>(std::stoi(text.substr(i, 2), nullptr, 16)));
+  return out;
+}
+
+static std::vector<std::uint8_t> setting_response(std::uint16_t address, std::uint8_t bytes, std::uint32_t raw) {
+  std::vector<std::uint8_t> frame = {0x7E, 0xA1, 0x12, static_cast<std::uint8_t>(address & 0xFF), static_cast<std::uint8_t>(address >> 8), bytes};
+  for (int i = 0; i < bytes; ++i) frame.push_back(static_cast<std::uint8_t>((raw >> (8 * i)) & 0xFF));
+  const std::uint16_t crc = ant::crc16(frame.data() + 1, frame.size() - 1);
+  frame.push_back(static_cast<std::uint8_t>(crc & 0xFF)); frame.push_back(static_cast<std::uint8_t>(crc >> 8));
+  frame.push_back(0xAA); frame.push_back(0x55);
+  return frame;
+}
+
+// The device information frame of a real ANT-BLE16ZMUB (captured by the esphome-ant-bms project): 48 bytes although its length byte says 32.
+static const char* kDeviceInfoCapture = "7ea1126c022031365a4d00000000000000000000000031365a4d554230302d323131303236417208ff0b000041f2aa55";
+
+static void test_ant_settings_frames() {
+  // the table and the captured requests: 56 registers, every request frame equal to the one the app sent
+  CHECK(ant::kRegisterCount == 56 && sizeof(kAntSettingsCases) / sizeof(kAntSettingsCases[0]) == 56);
+  for (std::size_t i = 0; i < ant::kRegisterCount; ++i) {
+    const AntSettingsCase& c = kAntSettingsCases[i];
+    const ant::Register& reg = ant::kRegisters[i];
+    CHECK(std::string(reg.name) == c.name && reg.address == c.address && reg.bytes == c.data_len);
+    const std::vector<std::uint8_t> request = ant::settings_request(reg.address, reg.bytes);
+    CHECK(request == std::vector<std::uint8_t>(c.frame.begin(), c.frame.end()));
+  }
+  // the device information request is the one a real app sent
+  CHECK(ant::settings_request(ant::kDeviceInfoAddress, ant::kDeviceInfoBytes) == hex_bytes("7ea1026c022058c4aa55"));
+  // nothing that writes is ever built: a request is always function 0x02, and the table holds no write address
+  for (std::size_t i = 0; i < ant::kRegisterCount; ++i) CHECK(ant::settings_request(ant::kRegisters[i].address, ant::kRegisters[i].bytes)[2] == 0x02);
+
+  // the answer of the reference project's documented example: CellOvervoltageProtection = 0x1036 = 4.150 V
+  const std::vector<std::uint8_t> answer = hex_bytes("7ea1120000023610" "1f14aa55");
+  CHECK(setting_response(0x0000, 2, 0x1036) == answer);
+  std::uint16_t address = 0xFFFF; std::uint32_t raw = 0;
+  CHECK(ant::decode_setting(answer.data(), answer.size(), address, raw) && address == 0 && raw == 0x1036 && near(raw * ant::kRegisters[0].scale, 4.150, 0.0005));
+  // a four-byte register
+  const std::vector<std::uint8_t> wide = setting_response(0x00A2, 4, 280000000);
+  CHECK(ant::decode_setting(wide.data(), wide.size(), address, raw) && address == 0x00A2 && raw == 280000000 && near(raw * 0.000001, 280.0, 0.001));
+  // whatever is not a whole, checked answer is refused
+  std::vector<std::uint8_t> bad = answer; bad[6] ^= 0x01;
+  CHECK(!ant::decode_setting(bad.data(), bad.size(), address, raw));
+  bad = answer; bad[2] = 0x11;
+  CHECK(!ant::decode_setting(bad.data(), bad.size(), address, raw));
+  CHECK(!ant::decode_setting(answer.data(), answer.size() - 1, address, raw));
+  bad = setting_response(0x0000, 3, 5);
+  CHECK(!ant::decode_setting(bad.data(), bad.size(), address, raw));      // a register is two or four bytes
+
+  // the device information, from a real capture: read by position, its model and version are text
+  const std::vector<std::uint8_t> info = hex_bytes(kDeviceInfoCapture);
+  CHECK(info.size() == 48);
+  std::string model, version;
+  CHECK(ant::decode_device_info(info.data(), info.size(), model, version) && model == "16ZM" && version == "16ZMUB00-211026A");
+  CHECK(ant::decode_device_info(info.data(), 42, model, version) && model == "16ZM");    // the whole frame is not needed, only its first 38 bytes
+  bad = info; bad[7] = 0x01;                                                                 // a control character in the model
+  CHECK(!ant::decode_device_info(bad.data(), bad.size(), model, version));
+  bad = info; bad[3] = 0x6D;                                                                 // another address
+  CHECK(!ant::decode_device_info(bad.data(), bad.size(), model, version));
+  CHECK(!ant::decode_device_info(info.data(), 30, model, version));
+}
+
+// A stand-in BMS of the newer protocol: it answers a read request after a latency, with a value made from the address, and the device information like the real capture.
+struct AntSettingsBench {
+  ant::SettingsReader reader;
+  std::vector<std::pair<std::uint64_t, std::vector<std::uint8_t>>> in_flight;
+  std::vector<std::vector<std::uint8_t>> asked;
+  std::uint64_t now = 0;
+  bool answers = true, info_answers = true;
+  std::size_t skip_from = 1000;          // registers from this index on are not answered
+  bool wrong_address = false;            // answers every register with the address of another one
+  void run(std::uint64_t until_ms) {
+    for (; now < until_ms && !reader.done(); now += 10) {
+      for (auto it = in_flight.begin(); it != in_flight.end();) {
+        if (it->first <= now) { reader.on_rx(it->second.data(), it->second.size()); it = in_flight.erase(it); } else ++it;
+      }
+      const std::vector<std::uint8_t> request = reader.next_tx(now);
+      if (request.empty()) continue;
+      asked.push_back(request);
+      if (!answers) continue;
+      const std::uint16_t address = static_cast<std::uint16_t>(request[3] | (request[4] << 8));
+      if (address == ant::kDeviceInfoAddress) { if (info_answers) in_flight.push_back({now + 40, hex_bytes(kDeviceInfoCapture)}); continue; }
+      for (std::size_t i = 0; i < ant::kRegisterCount; ++i) {
+        if (ant::kRegisters[i].address != address || i >= skip_from) continue;
+        const std::uint16_t reported = wrong_address ? ant::kRegisters[(i + 1) % ant::kRegisterCount].address : address;
+        in_flight.push_back({now + 40, setting_response(reported, ant::kRegisters[i].bytes, 1000 + static_cast<std::uint32_t>(i))});
+      }
+    }
+  }
+};
+
+static void test_ant_settings_reader() {
+  // a BMS that answers everything: 57 requests (the information and 56 registers), all answered, in order, none written
+  AntSettingsBench b;
+  b.run(60000);
+  CHECK(b.reader.done() && !b.reader.failed() && b.reader.answered() == 57 && b.reader.missing() == 0 && b.asked.size() == 57);
+  CHECK(b.asked[0] == hex_bytes("7ea1026c022058c4aa55") && b.asked[1] == ant::settings_request(0x0000, 2) && b.asked[56] == ant::settings_request(0x017E, 2));
+  for (const std::vector<std::uint8_t>& request : b.asked) CHECK(request.size() == 10 && request[2] == 0x02);
+  CHECK(b.reader.model() == "16ZM" && b.reader.version() == "16ZMUB00-211026A" && b.reader.values().size() == 56 && b.now < 5000);
+  CHECK(near(b.reader.values()[0].value, 1.000, 0.0005) && std::string(b.reader.values()[0].name) == "CellOvervoltageProtection" && std::string(b.reader.values()[0].unit) == "V");
+  armor::json::Value doc;
+  CHECK(armor::json::parse(b.reader.result_json(), doc) && doc.get("model")->text == "16ZM" && doc.get("asked")->number == 57 && doc.get("answered")->number == 57 && doc.get("missing")->number == 0);
+  CHECK(doc.get("settings")->items.size() == 56 && doc.get("settings")->items[0].get("name")->text == "CellOvervoltageProtection" && doc.get("settings")->items[0].get("unit")->text == "V");
+
+  // a BMS that answers only the first thirty registers: the others are counted as missing and the rest is kept
+  AntSettingsBench partial;
+  partial.skip_from = 30;
+  partial.run(60000);
+  CHECK(partial.reader.done() && !partial.reader.failed() && partial.reader.values().size() == 30 && partial.reader.missing() == 26);
+
+  // nothing listening: three silences in a row and it stops, saying so
+  AntSettingsBench silent;
+  silent.answers = false;
+  silent.run(60000);
+  CHECK(silent.reader.done() && silent.reader.failed() && silent.reader.error() == "silent" && silent.asked.size() == 3 && silent.now < 3000);
+
+  // the information does not answer but the registers do: it goes on
+  AntSettingsBench no_info;
+  no_info.info_answers = false;
+  no_info.run(60000);
+  CHECK(no_info.reader.done() && !no_info.reader.failed() && no_info.reader.values().size() == 56 && no_info.reader.missing() == 1);
+  armor::json::Value without;
+  CHECK(armor::json::parse(no_info.reader.result_json(), without) && without.get("model") == nullptr);
+
+  // an answer that is for another register is not taken for this one
+  AntSettingsBench wrong;
+  wrong.wrong_address = true;
+  wrong.run(80000);
+  CHECK(wrong.reader.done() && wrong.reader.values().empty() && wrong.reader.missing() == 56);
+}
+
 int main() {
   test_defaults_and_pins();
   test_ports();
@@ -562,6 +698,8 @@ int main() {
   test_ant_decoder();
   test_ant_framer();
   test_ant_port();
+  test_ant_settings_frames();
+  test_ant_settings_reader();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }

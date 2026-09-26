@@ -116,6 +116,7 @@ if the equipment shares its ground with a battery bank, with a common ground on 
   the MOSFET codes; compare the cells, the current and the state of charge with the BMS's own app. Its 3.3 V supply must be on the connector.
 - All ten ports enabled at once with equipment on several of them, Wi-Fi busy: the counters of overruns and framing errors of the emulated ports stay at zero, the requests of two emulated ports never overlap
   badly (one sends while the other waits).
+- On an ANT-BMS port of the newer protocol, *Read the BMS settings*: the model and version appear, then the table of values; compare a few (the number of cells, the capacity, the cell over- and under-voltage limits) with the BMS's own app. It is read only: check that the BMS's own settings did not change. The old protocol says so instead.
 - Read any battery whose protocol is not decoded through a raw port and keep the capture: it is what its decoder will be written from.
 - Leave it running for a day: no reset, no growth of the memory shown in the overview, readings in Studio.
 

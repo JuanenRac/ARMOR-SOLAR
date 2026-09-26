@@ -6,6 +6,7 @@
 #include "solar_manager.hpp"
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <mutex>
 extern "C" {
@@ -14,6 +15,7 @@ extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 }
+#include "core/ant_settings.hpp"
 #include "core/poller.hpp"
 #include "mqtt_link.hpp"
 #include "uart_ports.hpp"
@@ -29,6 +31,10 @@ struct Slot {
   std::string node_id;
   config::PortConfig config;
   std::size_t index = 0;
+  // the ANT-BMS settings operation: asked by the web server, run by the port's task
+  std::atomic<bool> settings_requested{false};
+  bool ant_new_protocol = false;
+  BmsSettingsStatus settings;
 };
 std::array<Slot, config::kPortCount> g_slots;
 Publish g_publish;
@@ -46,6 +52,29 @@ void fill(Slot& slot, const solar::Poller& poller, const ports::Port& port, cons
   s.overruns = port.overruns();
   s.framing_errors = port.framing_errors();
   if (!payload.empty()) s.last_payload = payload;
+  slot.ant_new_protocol = poller.ant_new_protocol();
+}
+
+// Reads the settings of the BMS on this port: one request at a time, nothing written, the poller waits. The result is left in the slot for the web server to give.
+void run_bms_settings(Slot& slot, ports::Port& port) {
+  solar::ant::SettingsReader reader;
+  std::uint8_t buffer[128];
+  std::size_t reported = static_cast<std::size_t>(-1);
+  while (!reader.done()) {
+    const std::vector<std::uint8_t> request = reader.next_tx(uptime_ms());
+    if (!request.empty() && !port.write(request.data(), request.size())) ESP_LOGW(kTag, "port %u: a settings request could not be sent", static_cast<unsigned>(slot.index + 1));
+    const std::size_t n = port.read(buffer, sizeof buffer, 30);
+    if (n > 0) reader.on_rx(buffer, n);
+    if (reader.step() != reported) {
+      reported = reader.step();
+      std::lock_guard<std::mutex> guard(slot.lock);
+      slot.settings.step = reported;
+    }
+  }
+  std::lock_guard<std::mutex> guard(slot.lock);
+  slot.settings.step = solar::ant::SettingsReader::total();
+  if (reader.failed()) { slot.settings.state = "error"; slot.settings.error = reader.error(); }
+  else { slot.settings.state = "done"; slot.settings.result = reader.result_json(); }
 }
 
 void port_task(void* argument) {
@@ -73,6 +102,7 @@ void port_task(void* argument) {
   std::uint8_t buffer[256];
   std::uint64_t last_fill_ms = 0, last_raw_total = 0;
   for (;;) {
+    if (slot.settings_requested.exchange(false)) run_bms_settings(slot, *port);
     const std::uint64_t now = uptime_ms();
     const std::vector<std::uint8_t> request = poller.next_tx(now);
     if (!request.empty() && !port->write(request.data(), request.size())) ESP_LOGW(kTag, "port %u: the request could not be sent", static_cast<unsigned>(slot.index + 1));
@@ -116,6 +146,27 @@ void start(const config::Settings& settings, Publish publish) {
     if (!cfg.enabled) continue;
     xTaskCreate(port_task, ("port" + std::to_string(i + 1)).c_str(), 6144, &slot, 5, nullptr);
   }
+}
+
+std::string start_bms_settings(std::size_t index) {
+  if (index >= config::kPortCount) return "no_port";
+  Slot& slot = g_slots[index];
+  std::lock_guard<std::mutex> guard(slot.lock);
+  if (!slot.status.enabled || slot.status.kind != "ant") return "not_ant";
+  if (slot.settings.state == "running") return "busy";
+  if (!slot.ant_new_protocol) return slot.status.detail.empty() ? "protocol_unknown" : "old_protocol";
+  slot.settings = BmsSettingsStatus();
+  slot.settings.state = "running";
+  slot.settings.total = solar::ant::SettingsReader::total();
+  slot.settings_requested = true;
+  return "";
+}
+
+BmsSettingsStatus bms_settings(std::size_t index) {
+  if (index >= config::kPortCount) return {};
+  Slot& slot = g_slots[index];
+  std::lock_guard<std::mutex> guard(slot.lock);
+  return slot.settings;
 }
 
 PortStatus status(std::size_t index) {

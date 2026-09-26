@@ -29,6 +29,18 @@ struct PortStatus {
 };
 PortStatus status(std::size_t index);
 
+// Reading the settings of an ANT-BMS (its model, its version, its protection and balancing values): READ ONLY, one operation at a time per port, run by the port's own task.
+struct BmsSettingsStatus {
+  std::string state = "idle";   // idle, running, done, error
+  std::string error;             // when state is error: silent
+  std::size_t step = 0, total = 0;
+  std::string result;            // when state is done: the JSON of ant::SettingsReader::result_json()
+};
+// Starts it on port `index` (0 to 9). Returns "" when it started, or why not: no_port, not_ant, protocol_unknown (the BMS has not answered yet), old_protocol (this BMS
+// has no settings request here) or busy.
+std::string start_bms_settings(std::size_t index);
+BmsSettingsStatus bms_settings(std::size_t index);
+
 // The last bytes a port received, as hexadecimal lines with the printable characters beside them.
 std::string raw_dump(std::size_t index);
 

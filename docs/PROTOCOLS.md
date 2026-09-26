@@ -78,6 +78,13 @@ everywhere in A.R.M.O.R.), the remaining and the full capacity (only when the BM
 The ports page of the node shows these codes as *what the equipment reported* (for example `new charge=1 discharge=1 balancer=0 cells=16`); the balancer state is 0
 off, 1 over the limit, 2 charge differential, 3 over-temperature, 4 automatic, 10 mainboard over-temperature.
 
+### Reading the settings (newer protocol, read only)
+
+The node can also **read** a BMS's device information and settings (the button *Read the BMS settings* of its port): a read request is `7E A1 02 <address lo> <address hi> <bytes> <crc> AA 55`, and a register answers
+`7E A1 12 <address> <bytes> <value, little-endian> <crc> AA 55`. The device information (address `0x026C`, 32 bytes: 16 of model and 16 of software version, as text) answers with six bytes more than its length byte says,
+so it is read by position and its CRC is not checked. The 56 registers are asked one at a time, two bytes each (four for the three capacities); their addresses, names, scales and units are the table of the esphome-ant-bms project
+(`core/ant_registers.hpp`), whose captured requests are the tests' vectors. **Nothing is written**: the BMS's write requests and its password are not built anywhere in this project.
+
 The protocol is written from the serial-protocol description of the VBMS project's wiki and from the AntBms-Arduino and esphome-ant-bms projects, whose captured
 frames of four models (two protocols) are the test vectors of the decoder. **Only reading is implemented**: the BMS's write commands (switching the MOSFETs, the
 parameters, the password) can disconnect a battery under load and are left out on purpose. The BMS also has a Bluetooth link (the one the vendor's phone app uses to
@@ -88,4 +95,5 @@ read and configure it); the node uses the cable, which is the more stable of the
 - The exact text of the console differs a little between firmware versions; a row with fewer columns is refused rather than guessed.
 - The scaling of the RS485 analogue values differs between versions of Pylontech's document; the frame is built and checked here, the values are not read.
 - Nothing has been read from a real device by this project: the ANT-BMS frames in the tests were captured by other people on their own units; the first thing to do with a real one is to capture its replies and add them to the tests.
+- Writing to a BMS or to an inverter (their settings, the MOSFET switches, the charge priorities) is not implemented and will not be until it has been studied with the real equipment and tried in isolation: a wrong value can disconnect a battery under load or change how an inverter feeds the house, and an ANT-BMS asks for a password to accept a write.
 - The ANT-BMS cycle count is an estimate and the MOSFET codes past 15 (new protocol) are as the esphome-ant-bms project lists them; a BMS that does not know its capacity reports none.

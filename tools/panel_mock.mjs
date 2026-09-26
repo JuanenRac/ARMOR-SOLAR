@@ -81,6 +81,8 @@ const ports = () => config.ports.map((p, i) => {
   return { port: i + 1, enabled: p.enabled, soft: i >= 3, kind: p.kind, name: p.name, baud: p.baud || (p.kind === "pylontech" ? 115200 : p.kind === "ant" ? 19200 : p.kind === "raw" ? 9600 : 2400), rx: p.rx, tx: p.tx, de: p.de, poll_s: 5, state, error: i === 3 ? "timeout" : "",
     bytes_rx: on ? 48000 + Math.floor((Date.now() - started) / 100) : 0, bytes_tx: p.enabled && p.kind !== "raw" ? 900 : 0, replies_ok: on && p.kind !== "raw" ? 410 : 0, replies_bad: 1, timeouts: i === 3 ? 42 : 2, readings: on && p.kind !== "raw" ? 136 : 0, overruns: 0, framing_errors: 0, ...(p.kind === "ant" && on ? { detail: "new charge=1 discharge=1 balancer=0 cells=16" } : {}) };
 });
+let antRead = null;
+const antSettings = { model: "16ZM", version: "16ZMUB00-211026A", asked: 57, answered: 57, missing: 0, settings: [["CellOvervoltageProtection", 3.65, "V"], ["CellOvervoltageRecovery", 3.6, "V"], ["PackOvervoltageProtection", 58.4, "V"], ["CellUndervoltageProtection", 2.5, "V"], ["CellUndervoltageRecovery", 2.8, "V"], ["CellVoltageDifferenceProtection", 0.5, "V"], ["ChargeOvercurrentProtection", 150, "A"], ["DischargeOvercurrentProtection", 200, "A"], ["ShortCircuitProtection", 800, "A"], ["SOCLowLevel1Warning", 20, "%"], ["CellBalancingStartVoltage", 3.4, "V"], ["CellNumber", 16, "S"], ["NominalCapacity", 280, "Ah"], ["RemainingCapacity", 252.6, "Ah"], ["TotalCycleCapacity", 4862.65, "Ah"]].map(([name, value, unit], i) => ({ address: i * 2, name, value, unit })) };
 const rawText = "48 65 6C 6C 6F 2C 20 69 6E 76 65 72 74 65 72 0D  |Hello, inverter.|\n0A                                               |.|\n";
 
 const json = (response, code, body, headers = {}) => { response.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers }); response.end(JSON.stringify(body)); };
@@ -161,6 +163,14 @@ const server = createServer(async (request, response) => {
   }
   if (method === "GET" && route === "ports") return json(response, 200, { ports: ports(), catalog });
   if (method === "GET" && route === "readings") return json(response, 200, readings());
+  if (route === "ports/ant-settings") {
+    const number = Number(url.searchParams.get("port"));
+    if (method === "POST") { antRead = { port: number, at: Date.now() }; return json(response, 202, { ok: true }); }
+    const steps = antRead && antRead.port === number ? Math.min(57, Math.floor((Date.now() - antRead.at) / 300)) : 0;
+    if (!antRead || antRead.port !== number) return json(response, 200, { port: number, state: "idle", error: "", step: 0, total: 0 });
+    if (steps < 57) return json(response, 200, { port: number, state: "running", error: "", step: steps, total: 57 });
+    return json(response, 200, { port: number, state: "done", error: "", step: 57, total: 57, result: antSettings });
+  }
   if (method === "GET" && route === "ports/raw") return json(response, 200, { port: Number(url.searchParams.get("port")), text: rawText });
   if (method === "GET" && route === "users") { if (!needAdmin()) return; return json(response, 200, [...users].map(([name, u]) => ({ name, role: u.role }))); }
   if (method === "POST" && route === "users") {

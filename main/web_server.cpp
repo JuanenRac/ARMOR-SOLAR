@@ -384,16 +384,46 @@ esp_err_t get_readings(httpd_req_t* r) {
   return send_json(r, 200, api::readings_json());
 }
 
-// What a port has heard, as hexadecimal lines: to look at a protocol that is not decoded yet, or to see what an inverter really answers.
-esp_err_t get_port_raw(httpd_req_t* r) {
-  Who who;
-  if (!require(r, who, false, false)) return ESP_OK;
+// The port number of a request's query (?port=3), 0 when there is none.
+long query_port(httpd_req_t* r) {
   long number = 0;
   char query[48];
   if (httpd_req_get_url_query_str(r, query, sizeof query) == ESP_OK) {
     char value[8];
     if (httpd_query_key_value(query, "port", value, sizeof value) == ESP_OK) number = std::strtol(value, nullptr, 10);
   }
+  return number;
+}
+
+// Reading the settings of an ANT-BMS: POST starts it (READ ONLY: the node sends read requests and nothing else), GET says how it goes and, when it is over, gives what the BMS answered.
+esp_err_t post_bms_settings(httpd_req_t* r) {
+  Who who;
+  if (!require(r, who, true, true)) return ESP_OK;
+  const long number = query_port(r);
+  if (number < 1 || number > static_cast<long>(config::kPortCount)) return send_error(r, 422, "invalid_port");
+  const std::string why = manager::start_bms_settings(static_cast<std::size_t>(number - 1));
+  if (!why.empty()) return send_error(r, why == "busy" ? 409 : 422, why.c_str());
+  return send_json(r, 202, "{\"ok\":true}");
+}
+
+esp_err_t get_bms_settings(httpd_req_t* r) {
+  Who who;
+  if (!require(r, who, false, false)) return ESP_OK;
+  const long number = query_port(r);
+  if (number < 1 || number > static_cast<long>(config::kPortCount)) return send_error(r, 422, "invalid_port");
+  const manager::BmsSettingsStatus s = manager::bms_settings(static_cast<std::size_t>(number - 1));
+  json::Writer w;
+  w.begin_object().field("port", static_cast<int>(number)).field("state", s.state).field("error", s.error).field("step", static_cast<int>(s.step)).field("total", static_cast<int>(s.total));
+  if (s.state == "done" && !s.result.empty()) w.key("result").raw(s.result);
+  w.end_object();
+  return send_json(r, 200, w.str());
+}
+
+// What a port has heard, as hexadecimal lines: to look at a protocol that is not decoded yet, or to see what an inverter really answers.
+esp_err_t get_port_raw(httpd_req_t* r) {
+  Who who;
+  if (!require(r, who, false, false)) return ESP_OK;
+  const long number = query_port(r);
   if (number < 1 || number > static_cast<long>(config::kPortCount)) return send_error(r, 422, "invalid_port");
   json::Writer w;
   w.begin_object().field("port", static_cast<int>(number)).field("text", manager::raw_dump(static_cast<std::size_t>(number - 1))).end_object();
@@ -574,6 +604,7 @@ esp_err_t api_handler(httpd_req_t* r) {
     if (route == "ports") return get_ports(r);
     if (route == "readings") return get_readings(r);
     if (route == "ports/raw") return get_port_raw(r);
+    if (route == "ports/ant-settings") return get_bms_settings(r);
     if (route == "users") return get_users(r);
     if (route == "log") return get_log(r);
   } else if (method == HTTP_POST) {
@@ -581,6 +612,7 @@ esp_err_t api_handler(httpd_req_t* r) {
     if (route == "login") return post_login(r);
     if (route == "logout") return post_logout(r);
     if (route == "users") return post_user(r);
+    if (route == "ports/ant-settings") return post_bms_settings(r);
     if (route == "reboot") return post_reboot(r);
     if (route == "factory-reset") return post_factory_reset(r);
     if (route == "ota") return post_ota(r);

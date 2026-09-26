@@ -25,7 +25,7 @@
 
 ---
 
-**Ehrlichkeitsprüfung - was heute läuft:** **Reifegrad: Scaffolding.** Die Firmware baut im ESP-IDF-5.4.2-Container, ihr Kern (die Einstellungen, der Austausch mit jeder Geräteart, die Arithmetik des emulierten UART: 349 Prüfungen) ist am Rechner mit Stellvertreter-Geräten getestet, die Nachrichten, die sie erzeugt, akzeptiert ARMOR-COMMON, und das Panel wurde in einem Browser gegen einen Stellvertreter-Knoten ausprobiert. **Sie lief nie auf einer Platine, und es wurde kein Wechselrichter und keine Batterie angeschlossen**: das WLAN, das Panel mit TLS, das Update, die Hardware- und emulierten UARTs und die Formate der Protokolle (aus öffentlichen Dokumenten und aus dem Gedächtnis geschrieben) sind unerprobt. Die ANT-BMS-Frames in den Tests wurden von anderen an deren eigenen Geräten aufgezeichnet: dieses Projekt hat selbst noch keines gelesen.
+**Ehrlichkeitsprüfung - was heute läuft:** **Reifegrad: Scaffolding.** Die Firmware baut im ESP-IDF-5.4.2-Container, ihr Kern (die Einstellungen, der Austausch mit jeder Geräteart, die Arithmetik des emulierten UART: 600 Prüfungen) ist am Rechner mit Stellvertreter-Geräten getestet, die Nachrichten, die sie erzeugt, akzeptiert ARMOR-COMMON, und das Panel wurde in einem Browser gegen einen Stellvertreter-Knoten ausprobiert. **Sie lief nie auf einer Platine, und es wurde kein Wechselrichter und keine Batterie angeschlossen**: das WLAN, das Panel mit TLS, das Update, die Hardware- und emulierten UARTs und die Formate der Protokolle (aus öffentlichen Dokumenten und aus dem Gedächtnis geschrieben) sind unerprobt. Die ANT-BMS-Frames in den Tests wurden von anderen an deren eigenen Geräten aufgezeichnet: dieses Projekt hat selbst noch keines gelesen.
 
 ---
 
@@ -37,7 +37,7 @@
 * **Voltronic- / MPP-Solar-Wechselrichter** (Axpert, PIP, InfiniSolar und Klone), RS232 mit 2400 Baud: die Rahmen und ihre CRC sowie die Messwerte `QPIGS` (Netz, Ausgang, Batterie, PV, Statusbits), `QMOD` (Modus), `QPIWS` (Warnungen und Störungen mit Namen) und `QPIRI` (Nennwerte). Nur lesende Befehle lassen sich bauen: eine Einstellung ändert, wie das Haus versorgt wird.
 * **Pylontech-Batterien** (US2000, US3000, US5000): die `pwr`-Tabelle der Konsole (Spannung, Strom, Temperaturen und Ladezustand jedes Moduls), `bat <n>` (Spannung und Temperatur jeder Zelle) und `info <n>` (Modell, Rest- und Gesamtkapazität, Zyklen), zusammengefasst als ein Stapel mit Gesamtkapazität und -energie, und der RS485-Rahmen mit seinen zwei Prüfungen. Die Formate sind aus dem Gedächtnis der öffentlichen Konsole geschrieben und können sich je nach Firmware unterscheiden.
 * **Die Nachrichten des Knotens** (`armor/solar/<Knoten>/<Gerät>/state`, eine je Wechselrichter oder Batteriestapel), in ARMOR-COMMON mit Schemas und Konformitätsvektoren definiert; was die Ports erzeugen, wird dagegen geprüft.
-* **ANT-BMS-Batterien** (die schwarzen Platinen selbstgebauter Akkus, 7S bis 32S), 3,3-V-UART mit 19200 Baud: beide Protokolle seiner Firmware (der Knoten fragt im einen und dann im anderen und bleibt bei dem, das antwortet), mit Zellen, Temperaturen, Ladezustand, Strom, Kapazitäten sowie den Zuständen der MOSFETs und des Balancers, geprüft an Frames, die an vier echten Modellen aufgezeichnet wurden. Nur Lesen: seine Schreibbefehle können eine Batterie unter Last trennen.
+* **ANT-BMS-Batterien** (die schwarzen Platinen selbstgebauter Akkus, 7S bis 32S), 3,3-V-UART mit 19200 Baud: beide Protokolle seiner Firmware (der Knoten fragt im einen und dann im anderen und bleibt bei dem, das antwortet), mit Zellen, Temperaturen, Ladezustand, Strom, Kapazitäten sowie den Zuständen der MOSFETs und des Balancers, geprüft an Frames, die an vier echten Modellen aufgezeichnet wurden. Nur Lesen: seine Schreibbefehle können eine Batterie unter Last trennen. Eine Schaltfläche auf der Port-Seite liest außerdem Modell, Version und 56 Schutz- und Balancing-Einstellungen des BMS (neueres Protokoll), nur lesend.
 * **Noch nicht:** die Bluetooth-Verbindung des ANT-BMS (der Knoten nutzt das Kabel, das stabilere von beiden), der Android-Tab und ein Lauf auf einer echten Platine mit echten Geräten.
 
 ## 📂 Struktur des Repositorys
@@ -56,7 +56,7 @@ ARMOR-SOLAR/
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar && build/host/test_node && build/host/test_board_eth      # 349 checks, -Werror
+build/host/test_solar && build/host/test_node && build/host/test_board_eth      # 600 checks, -Werror
 build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
 tools/build_node.sh generic                       # the firmware image for the N16R8 board in the ESP-IDF container: dist/generic-s3-wifi.bin
 tools/build_node.sh generic s3-eth               # the same firmware for the Waveshare ESP32-S3-ETH (Ethernet): dist/generic-s3-eth.bin

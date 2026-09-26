@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.5] - Reading the settings of an ANT-BMS (read only)
+
+- **The node can read a BMS's settings, and only read them.** On the *Serial ports* page an ANT-BMS port has a button *Read the BMS settings* (an administrator's): the node asks the BMS for its **model and software version** and for its **56 protection, warning, balancing and capacity registers** (cell and pack over- and under-voltage with their recoveries and second levels, currents and delays, short-circuit, state-of-charge warnings, balancing voltages and currents, number of cells, capacities), one read request at a time, and shows them as a table with their units. The port's ordinary readings wait meanwhile; a register that does not answer is counted and left out; three silences in a row end it.
+- **Nothing is ever written.** The only request built is function 0x02 (read); the write frames of the BMS and its password are not built anywhere. Changing a BMS's or an inverter's settings is a separate step for later, to be studied with the equipment and tried in isolation. Only a BMS of the newer protocol answers; the older one has no settings request here (the panel says so).
+- It runs as an operation of the port's own task (`POST /api/v1/ports/ant-settings?port=N` starts it, `GET` says how it goes and gives the result), so the web server is never blocked. Seven languages.
+- **Tests:** 600 host checks (100 + 417 of the node + 83 of the Ethernet profile). The 56 read requests are compared byte for byte with the ones a real app sent (captured by the esphome-ant-bms project), the documented answer's CRC is reproduced, the device information decodes from a real capture (a 48-byte frame whose length byte says 32: it is read by position, without its CRC), and the reader is run against stand-in BMSs that answer everything, only some registers, nothing, no device information, and answers for another register.
+- **Not done:** any of this against a real BMS; the old protocol's settings; anything that writes.
+
 ## [0.0.4] - One firmware for two boards: Wi-Fi and Ethernet
 
 - **The Waveshare ESP32-S3-ETH is supported** next to the ESP32-S3-WROOM-1 N16R8. The firmware is one code base with two **board profiles** chosen when the image is built: `tools/build_node.sh generic s3-wifi` (the default) writes `dist/generic-s3-wifi.bin`, `tools/build_node.sh generic s3-eth` writes `dist/generic-s3-eth.bin`. An image is for ONE board: flash it only to that one.

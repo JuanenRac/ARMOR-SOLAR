@@ -297,6 +297,38 @@ function pinOptions(selected, includeNone) {
   return (includeNone ? [[-1, t("none")]] : []).concat(list);
 }
 
+// Reading the settings of an ANT-BMS: started by an administrator, polled while it runs, the table shown when it is over. Read only.
+async function readBmsSettings(index) {
+  S.bms = { port: index, state: "running", step: 0, total: 0, result: null, error: "" };
+  render();
+  const start = await api("POST", "ports/ant-settings?port=" + (index + 1), {});
+  if (!start.ok) { S.bms = { port: index, state: "error", error: start.data.error, step: 0, total: 0, result: null }; render(); return; }
+  const poll = async () => {
+    const r = await api("GET", "ports/ant-settings?port=" + (index + 1));
+    if (!S.bms || S.bms.port !== index) return;
+    if (!r.ok) { S.bms = { port: index, state: "error", error: r.data.error, step: 0, total: 0, result: null }; render(); return; }
+    S.bms = { port: index, state: r.data.state, error: r.data.error, step: r.data.step, total: r.data.total, result: r.data.result || null };
+    render();
+    if (r.data.state === "running") setTimeout(poll, 1200);
+  };
+  setTimeout(poll, 1200);
+}
+
+const humanName = name => name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+
+function bmsSettingsView(index) {
+  const b = S.bms;
+  if (!b || b.port !== index) return null;
+  if (b.state === "running") return el("p", { class: "muted" }, t("antReading", b.step, b.total || 57));
+  if (b.state === "error") return el("p", { class: "err" }, errorText(b.error === "busy" ? "bms_busy" : b.error));
+  if (b.state !== "done" || !b.result) return null;
+  const r = b.result;
+  return el("div", {}, el("h3", {}, t("antSettingsTitle")),
+    el("p", { class: "muted" }, [r.model ? t("antModel") + ": " + r.model + " · " : "", r.version ? t("antVersion") + ": " + r.version + " · " : "", t("antSettingsCount", r.answered - (r.model ? 1 : 0), r.asked - 1)].join("")),
+    el("div", { class: "scroll" }, el("table", {}, el("tbody", {}, r.settings.map(x => el("tr", {}, el("td", {}, humanName(x.name)), el("td", { class: "mono" }, x.value + (x.unit ? " " + x.unit : ""))))))),
+    el("p", { class: "hint" }, t("antSettingsNote")));
+}
+
 async function showRaw(index) {
   S.rawOpen = S.rawOpen === index ? -1 : index; S.raw = "";
   if (S.rawOpen >= 0) await refreshRaw();
@@ -329,7 +361,9 @@ function portCard(index) {
       st.enabled && st.detail ? el("p", { class: "muted" }, t("portDetail") + ": " + st.detail) : null,
       st.enabled && (st.error || st.state === "error") ? el("p", { class: "err" }, portErrorText(st)) : null,
       st.state === "silent" || st.state === "garbled" || st.state === "waiting" ? el("p", { class: "hint" }, t("hint_" + st.state)) : null,
-      st.enabled ? el("div", { class: "actions" }, el("button", { class: "b", onclick: () => showRaw(index) }, t(S.rawOpen === index ? "hideRaw" : "showRaw"))) : null,
+      st.enabled ? el("div", { class: "actions" }, el("button", { class: "b", onclick: () => showRaw(index) }, t(S.rawOpen === index ? "hideRaw" : "showRaw")),
+        cfg.kind === "ant" ? el("button", { class: "b", disabled: !isAdmin() || (S.bms && S.bms.port === index && S.bms.state === "running"), onclick: () => readBmsSettings(index) }, t("antRead")) : null) : null,
+      cfg.kind === "ant" ? bmsSettingsView(index) : null,
       S.rawOpen === index ? el("pre", { class: "log", id: "port-raw" }, S.raw || t("rawEmpty")) : null] : null);
 }
 

@@ -155,6 +155,8 @@ class Poller {
            (ant_reading_.protecting ? " protecting" : "");
   }
   const std::string& device() const { return device_; }
+  // Whether this is an ANT-BMS port that has found its BMS speaking the newer protocol (the only one whose settings can be read).
+  bool ant_new_protocol() const { return kind_ == config::Kind::kAnt && ant_known_ && ant_protocol_ == ant::Protocol::kNew; }
   // The moment the node last heard something on this port, on the clock that was given (0: never).
   std::uint64_t last_rx_ms() const { return last_rx_ms_; }
 
