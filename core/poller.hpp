@@ -322,9 +322,14 @@ class Poller {
   }
 
   // ---- Pylontech console ----
+  // The console ends every answer, a good one or a refusal ("Invalid command or fail to excute."), with a line of `$$` and its prompt (`pylon>` or `pylon_debug>`):
+  // the answer is whole when the text ends in that prompt. Waiting for it also leaves nothing of this answer to be taken for the next one, and a command the battery does
+  // not know is over at once instead of after the timeout.
   static bool console_done(const std::string& text) {
-    static const char kMarker[] = "ommand completed";   // "Command completed successfully" (the first letter is not compared: the firmware's case varies)
-    return text.find(kMarker) != std::string::npos;
+    const std::size_t end = text.find_last_not_of(" \r\n\t");
+    if (end == std::string::npos || text[end] != '>') return false;
+    const std::size_t marker = text.rfind("$$");
+    return marker != std::string::npos && marker < end;
   }
 
   void ask_next_module(std::uint64_t now_ms) {
@@ -379,6 +384,7 @@ class Poller {
       if (!e.model.empty()) m.model = e.model;
       if (e.full_capacity_ah >= 0) m.full_capacity_ah = e.full_capacity_ah;
       if (e.cycles >= 0) m.cycles = e.cycles;
+      if (e.health_percent >= 0) m.health_percent = e.health_percent;
       ++module_at_;
       ask_next_module(now_ms);
       return;
@@ -397,7 +403,7 @@ class Poller {
   void end_extras(std::uint64_t now_ms) {
     const pylontech::Module& m = modules_[module_at_];
     Extras& e = extras_[static_cast<std::size_t>(m.number)];
-    e.model = m.model; e.full_capacity_ah = m.full_capacity_ah; e.cycles = m.cycles; e.at_ms = now_ms;
+    e.model = m.model; e.full_capacity_ah = m.full_capacity_ah; e.cycles = m.cycles; e.health_percent = m.health_percent; e.at_ms = now_ms;
     e.valid = had_capacity_ || m.capacity_ah < 0;
     ++module_at_;
     ask_next_module(now_ms);
@@ -470,7 +476,7 @@ class Poller {
   char mode_ = 0;
   std::vector<std::string> warnings_;
   std::vector<pylontech::Module> modules_;
-  struct Extras { std::string model; double full_capacity_ah = -1; int cycles = -1; std::uint64_t at_ms = 0; bool valid = false; };
+  struct Extras { std::string model; double full_capacity_ah = -1; int cycles = -1, health_percent = -1; std::uint64_t at_ms = 0; bool valid = false; };
   std::array<Extras, 17> extras_;   // by module number (1 to 16): what `info` and `stat` said, kept between cycles
   bool had_capacity_ = false;
   std::size_t module_at_ = 0;

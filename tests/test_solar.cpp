@@ -289,7 +289,7 @@ static void test_pylontech_real_formats() {
   CHECK(pylontech::parse_info("Specification : /\r\nSpecification : 48V\r\nSpecification : 48V/AH\r\nSpecification : 48V/0AH\r\n", odd) == 0 && odd.full_capacity_ah < 0);
 }
 
-// What real batteries printed on their console (captured with the maker's own program on units of the same models: US2000C with three firmware versions, an
+// What real batteries printed on their console (captured with the maker's own program on units of the same models: US2000C of four firmware versions, an
 // US2KBPL, an US3000C and a 24 V unit). The console echoes every line followed by an empty one, and some units leave fields empty. Serial numbers are replaced.
 static std::string echoed(const std::string& lines) {
   std::string out;
@@ -319,9 +319,31 @@ static void test_pylontech_real_captures() {
       "@\r\nDevice address           1\r\nData Items      :     1938\r\nCharge Times    :    49299\r\nBat OV Times    :      755\r\nSOH Times       :        0\r\nCYCLE Times     :     1344\r\n"
       "Pwr Percent     :       42\r\nPwr Coulomb     : 147752280\r\nDsg Cap         : 149287073\r\nHT Cnt          :        0 Hours\r\nCurrent Greater 70A Hours:        0 Hours\r\n"
       "System Error Times:        0\r\nCommand completed successfully\r\n$$\r\npylon_debug>\r\n";
-  CHECK(pylontech::parse_info(echoed(stat), c) == 1 && c.cycles == 1344 && c.model == "US3000C");
+  CHECK(pylontech::parse_info(echoed(stat), c) == 2 && c.cycles == 1344 && c.model == "US3000C" && c.health_percent == 55);   // 147752280 mAs of 74 Ah (266400000)
+  pylontech::Module worn;
+  worn.full_capacity_ah = 50.0;
+  CHECK(pylontech::parse_info("Pwr Coulomb     : 100856900\r\nCYCLE Times     :      576\r\n", worn) == 2 && worn.health_percent == 56 && worn.cycles == 576);
+  pylontech::Module newer;
+  newer.full_capacity_ah = 50.0;
+  CHECK(pylontech::parse_info("Pwr Coulomb     : 180000000\r\n", newer) == 1 && newer.health_percent == 100);
+  pylontech::Module over;
+  over.full_capacity_ah = 50.0;
+  CHECK(pylontech::parse_info("Pwr Coulomb     : 200000000\r\n", over) == 1 && over.health_percent == 100);       // more than the rating is still 100
+  pylontech::Module unrated, garbage;
+  CHECK(pylontech::parse_info("Pwr Coulomb     : 180000000\r\n", unrated) == 0 && unrated.health_percent < 0);      // no rated capacity known: no health
+  garbage.full_capacity_ah = 50.0;
+  CHECK(pylontech::parse_info("Pwr Coulomb     : abc\r\nPwr Coulomb     : 0\r\nPwr Coulomb     : 1234567890123\r\n", garbage) == 0 && garbage.health_percent < 0);
+  // the summary takes the mean of the modules that know theirs, and the message says it
+  std::vector<pylontech::Module> pair(2);
+  for (int i = 0; i < 2; ++i) { pair[i].number = i + 1; pair[i].present = true; pair[i].voltage_v = 50; pair[i].health_percent = i == 0 ? 100 : 56; }
+  CHECK(pylontech::summarise(pair).health_percent == 78);
+  pair[1].health_percent = -1;
+  CHECK(pylontech::summarise(pair).health_percent == 100 && pylontech::summarise({}).health_percent < 0);
   pylontech::Module fresh;
   CHECK(pylontech::parse_info(echoed("@\r\nCYCLE Times     :        0\r\nPwr Coulomb     : 180000000\r\nCommand completed successfully\r\n"), fresh) == 1 && fresh.cycles == 0);
+  // a bat table with fewer columns (index, voltage, temperature and two states) is read too
+  std::vector<double> few;
+  CHECK(pylontech::parse_bat("@\r\nBattery Volt Tempr Volt.St Temp.St\r\n0 3558 26700 Normal Normal\r\n1 3470 26700 Normal Normal\r\nCommand completed successfully\r\n", few) == 2 && few[1] == 3.47);
   // a console that does not know the command answers with a text and no completion line: nothing is read
   pylontech::Module none;
   CHECK(pylontech::parse_info("@\r\nInvalid command or fail to excute.\r\nUsage:\r\nShow recorded data - datalist [event/history]\r\n$$\r\npylon_debug>\r\n", none) == 0);

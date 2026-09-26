@@ -38,7 +38,8 @@ by the names of the header line**, because the firmwares differ: the older ones 
 column after `Tlow`, `Thigh`, `Vlow` and `Vhigh` and end with `SysAlarm.St`; the `Time` column is two words. Without a header the older layout is assumed.
 `bat <n>` prints a row per cell (the newer firmwares add the charge in mAH and a `Y` or `N` for the cell being balanced), `info <n>` the identity (`Device name`, `Specification` such as `48V/74AH` for the rated
 capacity, `Cell Number`, versions) and `stat <n>` the history (`CYCLE Times`). The identity and the history are asked once and kept for half an hour.
-Captured on real units (US2000C with three firmware versions, an US2KBPL, an US3000C and a 24 V unit), the console echoes every line followed by an empty one, `info` and `stat` answer as described
+**Health:** `stat`'s `Pwr Coulomb` is the capacity the battery has learned in milliampere-seconds (a new 50 Ah module says `180000000`, a 74 Ah one `266400000`); over the rated capacity of the `Specification` line it is the module's `health_percent` (the stack's is the mean). An answer ends with the prompt (`$$` and `pylon>` or `pylon_debug>`), for a refusal as well as for a good answer.
+Captured on real units (US2000C of four firmware versions, an US2KBPL, an US3000C and a 24 V unit), the console echoes every line followed by an empty one, `info` and `stat` answer as described
 (`Device name` says US2KBPL for what is sold as US2000B, and a few fields such as `Manufacturer` or `Barcode` can be empty), the console speed is 115200 (`Console Port rate` in `info`) and the prompt
 can be `pylon>` or `pylon_debug>`. The `pwr` and `bat` texts were not in those captures: their layouts remain those of the public descriptions.
 Models the firmwares are known under: US2000 / US2000B, US2000C, US2000B Plus, US2KBPL, US3000, US3000C, US5000, UP2500, UP5000, Force L1, Force L2 and the Pytes E-Box 48100R (its console is a relative of Pylontech's).

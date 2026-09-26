@@ -274,7 +274,7 @@ static std::string bat_table_mah() {
 static const char* kInfoReal =
     "@\r\nDevice address      : 1\r\nManufacturer        : Pylon\r\nDevice name         : US5000\r\nBoard version       : PHILTEC_BOARD_V2\r\nMain Soft version   : B66.6\r\n"
     "Specification       : 48V/74AH\r\nCell Number         : 15\r\nMax Dischg Curr     : -100000mA\r\nMax Charge Curr     : 100000mA\r\nCommand completed successfully\r\n$$\r\npylon>";
-static const char* kStat = "@\r\nDevice address      : 1\r\nData Items          : 100\r\nCHARGE Cnt.         : 400\r\nCYCLE Times         : 312\r\nCommand completed successfully\r\n$$\r\npylon>";
+static const char* kStat = "@\r\nDevice address      : 1\r\nData Items          : 100\r\nCHARGE Cnt.         : 400\r\nCYCLE Times         : 312\r\nPwr Coulomb         : 133200000\r\nCommand completed successfully\r\n$$\r\npylon>";
 static const char* kInfo = "@\r\nDevice address      : 1\r\nDevice name         : US3000C\r\nRemain Capacity     : 65100 mAH\r\nTotal Capacity      : 74000 mAH\r\nCycle Times         : 312\r\nCommand completed successfully\r\n$$\r\npylon>";
 
 static std::vector<std::uint8_t> bytes_of(const std::string& text) { return std::vector<std::uint8_t>(text.begin(), text.end()); }
@@ -562,8 +562,23 @@ static void test_pylontech_port() {
   CHECK(real.messages.size() == 3);
   for (const std::string& message : real.messages) {
     CHECK(armor::json::parse(message, doc) && doc.get("model")->text == "US5000" && doc.get("cycles")->number == 312 && doc.get("full_capacity_ah")->number > 73.9 && doc.get("full_capacity_ah")->number < 74.1);
+    CHECK(doc.get("health_percent")->number == 50 && doc.get("stack")->items[0].get("health_percent")->number == 50);   // 133200000 mAs of 74 Ah
     CHECK(doc.get("capacity_ah")->number > 66.5 && doc.get("capacity_ah")->number < 66.6 && doc.get("stack")->items[0].get("temperatures_c")->items.size() == 2);
   }
+}
+
+static void test_pylontech_refusals() {
+  const std::string refused = "@" + std::string(1, 13) + std::string(1, 10) + "Invalid command or fail to excute." + std::string(1, 13) + std::string(1, 10) + "$$" + std::string(1, 13) + std::string(1, 10) + "pylon>";
+  Bench b(config::Kind::kPylontech, 10, 1);
+  b.answers["pwr\r"] = bytes_of(kPwr);
+  b.answers["bat 1\r"] = bytes_of(bat_table());
+  b.answers["info 1\r"] = bytes_of(refused);
+  b.answers["stat 1\r"] = bytes_of(refused);
+  b.run(4000);
+  // the refusals end the exchange at once: no timeout, and the cells came in
+  CHECK(b.poller.stats().timeouts == 0 && !b.messages.empty());
+  armor::json::Value doc;
+  CHECK(armor::json::parse(b.messages[0], doc) && doc.get("stack")->items[0].get("cells_v") != nullptr && doc.get("health_percent") == nullptr && doc.get("cycles") == nullptr);
 }
 
 static void test_pylontech_faults() {
@@ -926,6 +941,7 @@ int main() {
   test_revo_and_warning_bits();
   test_inverter_dialects();
   test_pylontech_port();
+  test_pylontech_refusals();
   test_pylontech_faults();
   test_raw_port();
   test_ant_decoder();

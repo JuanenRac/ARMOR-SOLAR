@@ -37,6 +37,7 @@ struct Module {
   int soc_percent = -1;               // the "Coulomb" column
   double capacity_ah = -1, full_capacity_ah = -1;   // remaining and total capacity in ampere-hours, from the console's `info` text; -1 when it was not read
   int cycles = -1;
+  int health_percent = -1;            // the capacity the module has learned (`stat`'s Pwr Coulomb) against its rated one, in percent; -1 when unknown
   std::string model;                  // the device name from `info` (US3000C ...)
   std::vector<double> cells_v;        // the voltage of each cell, in volts, from the console's `bat` table; empty when it was not read
   std::vector<double> temperatures_c;  // every temperature sensor of the module (a BMS that lists them); empty when the equipment does not
@@ -125,7 +126,7 @@ inline std::size_t parse_bat(const std::string& text, std::vector<double>& cells
   const auto handle = [&](const std::string& row) {
     const std::vector<std::string> t = detail::tokens(row);
     long index = 0, millivolts = 0;
-    if (t.size() < 8 || !detail::integer(t[0], index) || index < 0 || index > 31 || !detail::integer(t[1], millivolts)) return;
+    if (t.size() < 3 || !detail::integer(t[0], index) || index < 0 || index > 31 || !detail::integer(t[1], millivolts)) return;   // some firmwares print fewer columns than others
     if (millivolts < 0 || millivolts > 10000) { bad = true; return; }
     if (static_cast<std::size_t>(index) != cells.size()) { bad = true; return; }   // the cells come in order, from 0
     cells.push_back(millivolts / 1000.0);
@@ -159,12 +160,21 @@ inline int parse_info(const std::string& text, Module& module) {
     out = unit == "ah" ? static_cast<double>(n) : n / 1000.0;
     return out <= 100000.0;
   };
+  long long coulomb_mas = -1;   // `stat`'s "Pwr Coulomb": the capacity the battery has learned, in milliampere-seconds (a new 50 Ah module says 180000000)
   double specified_ah = -1;   // the "48V/74AH" of the Specification line: the rated capacity, used when there is no Total Capacity line
   const auto handle = [&](const std::string& row) {
     const std::size_t colon = row.find(':');
     if (colon == std::string::npos) return;
     const std::string name = lower(trim(row.substr(0, colon))), value = trim(row.substr(colon + 1));
     long n = 0;
+    if (name == "pwr coulomb") {
+      const std::vector<std::string> words = detail::tokens(value);
+      if (words.empty() || words[0].empty() || words[0].size() > 12) return;
+      long long parsed = 0;
+      for (char c : words[0]) { if (c < '0' || c > '9') return; parsed = parsed * 10 + (c - '0'); }
+      coulomb_mas = parsed;
+      return;
+    }
     if (name == "specification") {
       const std::size_t slash = value.find('/');
       if (slash != std::string::npos && value.size() > slash + 3 && detail::integer(value.substr(slash + 1, value.size() - slash - 3), n) && lower(value.substr(value.size() - 2)) == "ah" && n > 0 && n <= 100000) specified_ah = static_cast<double>(n);
@@ -178,6 +188,11 @@ inline int parse_info(const std::string& text, Module& module) {
   for (char c : text) { if (c == '\n') { handle(line); line.clear(); } else line += c; }
   handle(line);
   if (specified_ah > 0 && module.full_capacity_ah < 0) { module.full_capacity_ah = specified_ah; ++found; }
+  if (coulomb_mas > 0 && module.full_capacity_ah > 0) {   // health: what the battery holds now against what it was made to hold
+    const double percent = static_cast<double>(coulomb_mas) / (module.full_capacity_ah * 3600000.0) * 100.0;
+    module.health_percent = percent >= 100.0 ? 100 : static_cast<int>(percent + 0.5);
+    ++found;
+  }
   return found;
 }
 
@@ -195,6 +210,7 @@ struct Stack {
   double cell_low_v = 0, cell_high_v = 0;
   double capacity_ah = -1, full_capacity_ah = -1, energy_kwh = -1;   // the modules' add up (they are in parallel); -1 when no module said
   int cycles = -1;                    // of the most used module
+  int health_percent = -1;            // the mean of the modules that know theirs
   std::string model;                  // the first module's
   std::string state;                  // "charging", "discharging", "idle"
   bool alarm = false;                 // any state column that is not Normal, Idle, Charge or Dischg
@@ -203,7 +219,8 @@ struct Stack {
 inline Stack summarise(const std::vector<Module>& modules) {
   Stack s;
   double voltage = 0, soc = 0, current = 0;
-  int with_soc = 0;
+  int with_soc = 0, with_health = 0;
+  double health = 0;
   bool first = true;
   for (const Module& m : modules) {
     if (!m.present) continue;
@@ -226,6 +243,7 @@ inline Stack summarise(const std::vector<Module>& modules) {
     if (m.capacity_ah >= 0) s.capacity_ah = (s.capacity_ah < 0 ? 0 : s.capacity_ah) + m.capacity_ah;
     if (m.full_capacity_ah >= 0) s.full_capacity_ah = (s.full_capacity_ah < 0 ? 0 : s.full_capacity_ah) + m.full_capacity_ah;
     if (m.cycles > s.cycles) s.cycles = m.cycles;
+    if (m.health_percent >= 0) { health += m.health_percent; ++with_health; }
     if (s.model.empty()) s.model = m.model;
     for (const std::string* state : {&m.voltage_state, &m.current_state, &m.temperature_state, &m.cell_voltage_state, &m.cell_temperature_state, &m.mosfet_temperature_state, &m.system_alarm_state})
       if (*state != "Normal" && !state->empty()) s.alarm = true;
@@ -235,6 +253,7 @@ inline Stack summarise(const std::vector<Module>& modules) {
     s.current_a = current;               // and their currents add
     if (s.capacity_ah >= 0) s.energy_kwh = s.capacity_ah * s.voltage_v / 1000.0;
     if (with_soc > 0) s.soc_percent = static_cast<int>(soc / with_soc + 0.5);
+    if (with_health > 0) s.health_percent = static_cast<int>(health / with_health + 0.5);
     s.state = s.current_a > 0.5 ? "charging" : s.current_a < -0.5 ? "discharging" : "idle";
   }
   return s;
