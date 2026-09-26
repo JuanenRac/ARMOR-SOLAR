@@ -48,6 +48,7 @@ const config = {
     { enabled: false, kind: "voltronic", name: "port10", baud: 0, rx: 42, tx: 1, de: -1, poll_s: 0, modules: 0, dialect: "auto" },
   ],
   web: { mode: "both" },
+  ble: { mode: "setup" },
   ui: { language: "en" },
 };
 

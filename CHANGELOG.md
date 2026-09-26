@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.7] - Configuration from a phone over Bluetooth
+
+- **Bluetooth Low Energy (NimBLE), the same channel as ARMOR-RADAR's node:** a phone running the ARMOR app finds the node as `ARMOR-XXXXXX` and sets up its name, Wi-Fi station, address, broker and the rest, with the same set-up code and the same users as the panel (`docs/BLE_PROVISIONING.md`). The link asks for encryption before anything is written; every operation but `hello` needs the set-up code or a login, changing anything needs an administrator, and wrong passwords are throttled.
+- **A new setting, `ble.mode`:** `setup` (the default: the node listens only while it has no user), `always` or `off` (the Bluetooth stack is not even started). It is in the panel's Network page, in seven languages.
+- **Tests:** 68 more host checks (the framing, the requests, who may ask what, and the setting).
+- **Not done:** the radio side has never run on a board and no phone has talked to it.
+
 ## [0.0.6] - More inverters and batteries: three inverter dialects and the real Pylontech console formats
 
 - **Three dialects for the inverters, read only.** The port of an inverter now has a *Protocol* setting: **auto** (the default: the node asks in PI30, then in PI18, and keeps to the one that answers; it looks again after three silences), **PI30** (Axpert, PIP, MKS and clones: what the port always spoke), **REVO** (the same frames with another arrangement of `QPIGS`, no warning list, and replies that end with a one-byte checksum instead of the CRC: a reply that fits only the checksum makes an *auto* port REVO) and **PI18** (InfiniSolar V, LV5048, SunGoldPower and clones: `^P005GS`, `^P006MOD`, `^P005FWS`, replies `^D...` with the length in front and a CRC). A whole reply of the other dialect (even a refusal) makes a searching port change at once. The port says which one it found; a dialect chosen by hand is never given up.
