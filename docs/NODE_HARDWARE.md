@@ -27,8 +27,12 @@ the nodes that see the router well and the PoE one for the rest. A stack of batt
   if the node is powered from anything else, use an isolated UART link. The two protocols of its firmware are both read (see `PROTOCOLS.md`).
 - **Level conversion:** RS232 signals swing about ±10 V; the ESP32 pins are 3.3 V and are damaged by that. Use a MAX3232 module (3.3 V version) for RS232
   and an RS485 transceiver module (with automatic direction control) for RS485. **Never connect an RS232 line straight to a pin.**
-- **Isolation:** these devices share ground with a battery bank and, on some inverters, with the mains. Use an **isolated** RS232 or RS485 converter
-  between the equipment and the node, and keep the node's supply apart from the battery ground. A fault on the battery side then cannot reach the network side.
+- **Isolation:** a serial port can share ground with a battery bank and, on some inverters, with the mains, so find out before connecting: if it does, use an **isolated**
+  RS232 or RS485 converter between the equipment and the node, and keep the node's supply apart from the battery ground, so a fault on the battery side cannot reach
+  the network side. **The eight-port base board has no isolation on purpose**, because of what its equipment is: the serial ports of the Pylontech batteries are already
+  isolated from the battery's negative (and the batteries' positives and negatives are tied to each other, so a DC breaker opening one pole does not leave a port
+  floating against them), and the RS232 of the inverter is highly isolated from both its positive and its negative. That is the owner's statement about the equipment,
+  not something this project checked: a port that is not isolated (the ANT-BMS one is the pack's negative, see above) does not go on that board without an isolator.
 - **Cable length:** RS232 is meant for a few metres; for more, use RS485, which reaches hundreds of metres, and put the node near the equipment.
 
 ## The LEDs of the base board (one per port, through a 74HC595)

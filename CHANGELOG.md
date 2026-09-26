@@ -10,6 +10,7 @@ All notable changes to this project are documented here.
 - **Not read: `pwrsys`.** Its output is not described in any public document that could be found, so no parser was written from a guess. Instead, the panel's **Ask the battery** sends one question to a Pylontech console from an allow-list of commands that only read (`pwrsys`, `pwr`, `help`, `bat`/`info`/`stat`/`soh`/`data` with a module) and shows the answer as it came, so that it can be captured from a real battery (`core/console_probe.hpp`, 96 checks; the text on the wire is rebuilt from the list, never copied from the input).
 - **Tests:** 2,548 host checks in all: 1,630 of the mux profile (the settings, who has the line, the LEDs, the rotation), 57 of the two optional readings, 96 of the console question, and the messages with them are accepted by ARMOR-COMMON; the panel was exercised in a real browser against a stand-in node (`tools/panel_browser_test.mjs`, 16 checks).
 - **Not done:** none of it has run on a board.
+- The hardware notes say why the eight-port base board has no isolation (the Pylontech ports and the inverter's RS232 are isolated at the equipment) and what would still need it (a port that shares the pack's negative, like the ANT-BMS one).
 
 ## [0.0.7] - Configuration from a phone over Bluetooth
 
