@@ -300,7 +300,7 @@ static std::string echoed(const std::string& lines) {
 static void test_pylontech_real_captures() {
   const std::string us2000c =
       "@\r\nDevice address      : 1\r\nManufacturer        : Pylon\r\nDevice name         : US2000C\r\nBoard version       : V10R04\r\nBoard               : NF4.E2\r\n"
-      "Main Soft version   : B69.12.0.0\r\nSoft  version       : V1.3\r\nBoot  version       : V1.0\r\nComm version        : V2.0\r\nRelease Date        : 21-12-27\r\n"
+      "Main Soft version   : B69.12.0\r\nSoft  version       : V1.3\r\nBoot  version       : V1.0\r\nComm version        : V2.0\r\nRelease Date        : 21-12-27\r\n"
       "Barcode             : K000000C00000000\r\nSpecification       : 48V/50AH\r\nCell Number         : 15\r\nMax Dischg Curr     : -90000mA\r\nMax Charge Curr     : 90000mA\r\n"
       "EPONPort rate       : 1200\r\nConsole Port rate   : 115200\r\nCommand completed successfully\r\n$$\r\npylon_debug>\r\n";
   pylontech::Module m;
@@ -310,7 +310,7 @@ static void test_pylontech_real_captures() {
                               "Soft  version       : V2.3\r\nBarcode             : PPT000000000000\r\n\r\nSpecification       : 48V/50AH\r\nCell Number         : 15\r\nConsole Port rate   : 115200\r\nCommand completed successfully\r\n";
   pylontech::Module b;
   CHECK(pylontech::parse_info(echoed(us2kbpl), b) == 2 && b.model == "US2KBPL" && b.full_capacity_ah == 50.0);
-  const std::string us3000c = "@\r\nDevice address      : 1\r\nManufacturer        : \r\nDevice name         : US3000C\r\nBoard version       : \r\nMain Soft version   : B68.8.0.0\r\n"
+  const std::string us3000c = "@\r\nDevice address      : 1\r\nManufacturer        : \r\nDevice name         : US3000C\r\nBoard version       : \r\nMain Soft version   : B68.8.0\r\n"
                               "Barcode             :                 \r\nSpecification       : 48V/74AH\r\nCell Number         : 15\r\nMax Dischg Curr     : -90000mA\r\nCommand completed successfully\r\n";
   pylontech::Module c;
   CHECK(pylontech::parse_info(echoed(us3000c), c) == 2 && c.model == "US3000C" && c.full_capacity_ah == 74.0);
