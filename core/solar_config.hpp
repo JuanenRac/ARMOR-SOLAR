@@ -102,6 +102,7 @@ struct PortConfig {
   int de = -1;        // an RS485 transceiver's driver-enable (and receiver-enable) pin, high while sending; -1: RS232 or none
   int poll_s = 0;     // seconds between two readings; 0: the kind's own
   int modules = 0;    // Pylontech: how many modules to ask cell by cell (0: all that answer, up to 8)
+  std::string dialect = "auto";   // inverter: "auto" (looks for it), "pi30", "revo" or "pi18"; the other kinds ignore it
 };
 
 struct Settings {
@@ -281,6 +282,7 @@ inline void read_settings(const json::Value& document, Settings& s, Problems& pr
       read_int(item, "de", port.de, -1, board::kLastGpio, base + "de", problems);
       read_int(item, "poll_s", port.poll_s, 0, 3600, base + "poll_s", problems);
       read_int(item, "modules", port.modules, 0, 8, base + "modules", problems);
+      read_text(item, "dialect", port.dialect, 8, base + "dialect", problems);
     }
   }
   if (const json::Value* web = document.get("web"); web != nullptr && web->is_object()) {
@@ -390,6 +392,7 @@ inline Problems validate(const Settings& s) {
     Kind kind = Kind::kVoltronic;
     const bool kind_ok = kind_from_text(port.kind, kind);
     if (!kind_ok) bad(problems, base + "kind", "invalid");
+    if (kind_ok && kind == Kind::kVoltronic && port.dialect != "auto" && port.dialect != "pi30" && port.dialect != "revo" && port.dialect != "pi18") bad(problems, base + "dialect", "invalid");
     if (!valid_device_name(port.name)) bad(problems, base + "name", port.name.empty() ? "required" : "invalid");
     else if (std::find(names.begin(), names.end(), port.name) != names.end()) bad(problems, base + "name", "conflict");
     else names.push_back(port.name);
@@ -428,7 +431,7 @@ inline std::string to_json(const Settings& s, bool secrets) {
   w.key("ports").begin_array();
   for (const PortConfig& port : s.ports) {
     w.begin_object().field("enabled", port.enabled).field("kind", port.kind).field("name", port.name).field("baud", port.baud).field("rx", port.rx).field("tx", port.tx)
-        .field("de", port.de).field("poll_s", port.poll_s).field("modules", port.modules).end_object();
+        .field("de", port.de).field("poll_s", port.poll_s).field("modules", port.modules).field("dialect", port.dialect).end_object();
   }
   w.end_array();
   w.key("web").begin_object().field("mode", to_text(s.web)).end_object();

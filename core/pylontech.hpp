@@ -6,8 +6,12 @@
 // CONSOLE (RJ45 "console", RS232 levels, 115200 baud 8N1): typing `pwr` and Enter prints a table with one row per module of the stack, the master
 // answering for all of them, then "Command completed successfully" and a prompt. Columns, in order:
 //     Power  Volt(mV)  Curr(mA)  Tempr(m°C)  Tlow  Thigh  Vlow(mV)  Vhigh(mV)  Base.St  Volt.St  Curr.St  Temp.St  Coulomb(%)  Time(date time)  B.V.St  B.T.St
-// A module that is not there has "Absent" in its row. Older firmwares print fewer columns: the parser takes a row that has at least the first
-// thirteen fields and leaves the rest empty.
+// A module that is not there has "Absent" in its row. The columns are read by the NAMES in the header line (`Power Volt Curr ...`), because the firmwares
+// differ: the older ones stop at B.T.St, others add MosTempr and M.T.St, and the newer ones (US5000 V2.3) add an Id column after Tlow, Thigh, Vlow and Vhigh and a
+// SysAlarm.St at the end. Without a header line, the columns listed above are assumed. The Time column is two words (a date and a time).
+//
+// `bat <n>` prints a row per cell; the newer firmwares add the charge in mAH and whether the cell is being balanced (Y/N). `info <n>` prints the identity of the module
+// (Device name, Specification such as "48V/74AH", Cell Number, versions) and `stat <n>` its history (CYCLE Times).
 //
 // RS485 (the other RJ45, 9600 or 115200 baud): frames of ASCII hexadecimal  '~' VER ADR CID1 CID2 LENGTH INFO CHKSUM CR,
 //     LENGTH = the length of INFO in characters (12 bits) with a 4-bit check in front: the check is the sum of the three 4-bit groups of the length,
@@ -16,6 +20,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +41,7 @@ struct Module {
   std::vector<double> cells_v;        // the voltage of each cell, in volts, from the console's `bat` table; empty when it was not read
   std::vector<double> temperatures_c;  // every temperature sensor of the module (a BMS that lists them); empty when the equipment does not
   std::string base_state, voltage_state, current_state, temperature_state;   // Idle, Charge, Dischg, Normal, Absent ...
+  std::string cell_voltage_state, cell_temperature_state, mosfet_temperature_state, system_alarm_state;   // B.V.St, B.T.St, M.T.St, SysAlarm.St when the firmware prints them
 };
 
 namespace detail {
@@ -63,9 +69,11 @@ inline bool integer(const std::string& text, long& out) {
 // The modules of the text a `pwr` command printed (any number of lines, with or without the header and the prompt). Returns how many rows were read.
 inline std::size_t parse_pwr(const std::string& text, std::vector<Module>& modules) {
   modules.clear();
+  std::vector<std::string> columns{"Power", "Volt", "Curr", "Tempr", "Tlow", "Thigh", "Vlow", "Vhigh", "Base.St", "Volt.St", "Curr.St", "Temp.St", "Coulomb", "Time", "B.V.St", "B.T.St"};
   std::string line;
   const auto handle = [&](const std::string& row) {
     const std::vector<std::string> t = detail::tokens(row);
+    if (t.size() >= 8 && t[0] == "Power" && t[1] == "Volt") { columns = t; return; }   // the header of this firmware
     long number = 0;
     if (t.empty() || !detail::integer(t[0], number) || number < 1 || number > 16) return;
     Module m;
@@ -73,18 +81,30 @@ inline std::size_t parse_pwr(const std::string& text, std::vector<Module>& modul
     bool absent = false;
     for (const std::string& token : t) if (token == "Absent") absent = true;
     if (absent) { m.present = false; m.base_state = "Absent"; modules.push_back(m); return; }
-    if (t.size() < 13) return;
+    std::map<std::string, std::string> cell;
+    std::size_t at = 1;
+    for (std::size_t c = 1; c < columns.size() && at < t.size(); ++c) {
+      if (columns[c] == "Time" && at + 1 < t.size() && t[at].find('-') != std::string::npos && t[at + 1].find(':') != std::string::npos) { at += 2; continue; }
+      cell[columns[c]] = t[at++];
+    }
     long v[7] = {};
-    for (std::size_t i = 0; i < 7; ++i) if (!detail::integer(t[1 + i], v[i])) return;
+    static const char* const kNumbers[7] = {"Volt", "Curr", "Tempr", "Tlow", "Thigh", "Vlow", "Vhigh"};
+    for (std::size_t i = 0; i < 7; ++i) { const auto found = cell.find(kNumbers[i]); if (found == cell.end() || !detail::integer(found->second, v[i])) return; }
+    for (const char* name : {"Base.St", "Volt.St", "Curr.St", "Temp.St", "Coulomb"}) if (cell.find(name) == cell.end()) return;
     m.present = true;
     m.voltage_v = v[0] / 1000.0; m.current_a = v[1] / 1000.0; m.temperature_c = v[2] / 1000.0;
     m.temperature_low_c = v[3] / 1000.0; m.temperature_high_c = v[4] / 1000.0; m.cell_low_v = v[5] / 1000.0; m.cell_high_v = v[6] / 1000.0;
-    m.base_state = t[8]; m.voltage_state = t[9]; m.current_state = t[10]; m.temperature_state = t[11];
+    m.base_state = cell["Base.St"]; m.voltage_state = cell["Volt.St"]; m.current_state = cell["Curr.St"]; m.temperature_state = cell["Temp.St"];
+    const auto state = [&](const char* name, std::string& into) { const auto found = cell.find(name); if (found != cell.end()) into = found->second; };
+    state("B.V.St", m.cell_voltage_state); state("B.T.St", m.cell_temperature_state); state("M.T.St", m.mosfet_temperature_state); state("SysAlarm.St", m.system_alarm_state);
     {
-      const std::string& soc = t[12];
+      const std::string& soc = cell["Coulomb"];
       long percent = 0;
       if (!soc.empty() && soc.back() == '%' && detail::integer(soc.substr(0, soc.size() - 1), percent) && percent >= 0 && percent <= 100) m.soc_percent = static_cast<int>(percent);
     }
+    const auto mos = cell.find("MosTempr");
+    long mos_mc = 0;
+    if (mos != cell.end() && detail::integer(mos->second, mos_mc)) m.temperatures_c = {m.temperature_c, mos_mc / 1000.0};   // the cells' sensor and the MOSFETs'
     modules.push_back(m);
   };
   for (char c : text) { if (c == '\n') { handle(line); line.clear(); } else line += c; }
@@ -93,9 +113,13 @@ inline std::size_t parse_pwr(const std::string& text, std::vector<Module>& modul
 }
 
 // The cells of a module from the text a `bat <module>` command printed: one row per cell with the index, the voltage (mV), the current (mA), the temperature
-// (m°C), the four states and the charge. Returns how many cells were read; a row that is not one is skipped, and a cell voltage out of 0 to 10 V refuses the whole table.
-inline std::size_t parse_bat(const std::string& text, std::vector<double>& cells) {
+// (m°C), the four states and the charge (a percentage; the newer firmwares then give the charge in mAH and a Y or N for the cell being balanced). Returns how many cells were
+// read; a row that is not one is skipped, and a cell voltage out of 0 to 10 V refuses the whole table. `remaining_ah` gets the charge in ampere-hours when a row has it (-1
+// otherwise) and `balancing` how many cells are being balanced.
+inline std::size_t parse_bat(const std::string& text, std::vector<double>& cells, double* remaining_ah = nullptr, int* balancing = nullptr) {
   cells.clear();
+  if (remaining_ah != nullptr) *remaining_ah = -1;
+  if (balancing != nullptr) *balancing = 0;
   std::string line;
   bool bad = false;
   const auto handle = [&](const std::string& row) {
@@ -105,6 +129,9 @@ inline std::size_t parse_bat(const std::string& text, std::vector<double>& cells
     if (millivolts < 0 || millivolts > 10000) { bad = true; return; }
     if (static_cast<std::size_t>(index) != cells.size()) { bad = true; return; }   // the cells come in order, from 0
     cells.push_back(millivolts / 1000.0);
+    long milliamp_hours = 0;
+    if (remaining_ah != nullptr && *remaining_ah < 0 && t.size() >= 11 && detail::integer(t[9], milliamp_hours) && milliamp_hours >= 0 && t[10] == "mAH") *remaining_ah = milliamp_hours / 1000.0;
+    if (balancing != nullptr && t.size() >= 12 && t[11] == "Y") ++*balancing;
   };
   for (char c : text) { if (c == '\n') { handle(line); line.clear(); } else line += c; }
   handle(line);
@@ -132,11 +159,17 @@ inline int parse_info(const std::string& text, Module& module) {
     out = unit == "ah" ? static_cast<double>(n) : n / 1000.0;
     return out <= 100000.0;
   };
+  double specified_ah = -1;   // the "48V/74AH" of the Specification line: the rated capacity, used when there is no Total Capacity line
   const auto handle = [&](const std::string& row) {
     const std::size_t colon = row.find(':');
     if (colon == std::string::npos) return;
     const std::string name = lower(trim(row.substr(0, colon))), value = trim(row.substr(colon + 1));
     long n = 0;
+    if (name == "specification") {
+      const std::size_t slash = value.find('/');
+      if (slash != std::string::npos && value.size() > slash + 3 && detail::integer(value.substr(slash + 1, value.size() - slash - 3), n) && lower(value.substr(value.size() - 2)) == "ah" && n > 0 && n <= 100000) specified_ah = static_cast<double>(n);
+      return;
+    }
     if (name == "device name" || name == "devicename") { if (!value.empty() && value.size() <= 24) { module.model = value; ++found; } }
     else if (name == "remain capacity" || name == "remaining capacity") { if (amp_hours(value, module.capacity_ah)) ++found; }
     else if (name == "total capacity" || name == "full capacity" || name == "capacity") { if (amp_hours(value, module.full_capacity_ah)) ++found; }
@@ -144,6 +177,7 @@ inline int parse_info(const std::string& text, Module& module) {
   };
   for (char c : text) { if (c == '\n') { handle(line); line.clear(); } else line += c; }
   handle(line);
+  if (specified_ah > 0 && module.full_capacity_ah < 0) { module.full_capacity_ah = specified_ah; ++found; }
   return found;
 }
 
@@ -193,7 +227,8 @@ inline Stack summarise(const std::vector<Module>& modules) {
     if (m.full_capacity_ah >= 0) s.full_capacity_ah = (s.full_capacity_ah < 0 ? 0 : s.full_capacity_ah) + m.full_capacity_ah;
     if (m.cycles > s.cycles) s.cycles = m.cycles;
     if (s.model.empty()) s.model = m.model;
-    for (const std::string* state : {&m.voltage_state, &m.current_state, &m.temperature_state}) if (*state != "Normal" && !state->empty()) s.alarm = true;
+    for (const std::string* state : {&m.voltage_state, &m.current_state, &m.temperature_state, &m.cell_voltage_state, &m.cell_temperature_state, &m.mosfet_temperature_state, &m.system_alarm_state})
+      if (*state != "Normal" && !state->empty()) s.alarm = true;
   }
   if (s.modules > 0) {
     s.voltage_v = voltage / s.modules;   // the modules of a stack are in parallel: the same voltage, so the mean is what the bus has

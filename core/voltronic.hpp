@@ -9,6 +9,9 @@
 //   CRC-16:   XMODEM (polynomial 0x1021, start 0) over every byte before the CRC; if either byte of the result is 0x28, 0x0D or 0x0A it is
 //             increased by one, so the CRC can never be taken for a delimiter.
 //
+// Dialects of this protocol (see the poller): the standard one (PI30: Axpert, PIP, MKS, InfiniSolar clones ...), the REVO one (the same frames, another arrangement of QPIGS, and
+// replies that may end with a one-byte checksum instead of the CRC) and PI18 (core/voltronic_pi18.hpp: other frames altogether). Sources: the mpp-solar and esphome-pipsolar projects.
+//
 // Only reading commands are built here (Q...): a setting command (PCP, POP, PBT ...) changes how the inverter charges and feeds the house, and is
 // not something to send from an untested library.
 #pragma once
@@ -60,6 +63,18 @@ inline bool parse_reply(const std::uint8_t* frame, std::size_t length, std::stri
   const std::array<std::uint8_t, 2> crc = wire_crc(frame, body);
   if (frame[body] != crc[0] || frame[body + 1] != crc[1]) return false;
   text.assign(reinterpret_cast<const char*>(frame) + 1, body - 1);
+  return true;
+}
+
+// A reply of the REVO dialect: the CRC of the standard one, or a one-byte checksum (the sum of every byte before it, plus one) and CR. False when neither fits.
+inline bool parse_reply_revo(const std::uint8_t* frame, std::size_t length, std::string& text) {
+  if (parse_reply(frame, length, text)) return true;
+  text.clear();
+  if (length < 4 || frame[0] != '(' || frame[length - 1] != '\r') return false;
+  unsigned sum = 1;
+  for (std::size_t i = 0; i + 2 < length; ++i) sum += frame[i];
+  if ((sum & 0xFF) != frame[length - 2]) return false;
+  text.assign(reinterpret_cast<const char*>(frame) + 1, length - 3);
   return true;
 }
 
@@ -155,6 +170,26 @@ inline bool parse_qpigs(const std::string& text, Status& out) {
   return true;
 }
 
+// The REVO arrangement of QPIGS: the same until the twelfth field, then the PV power in watts (not the current into the battery), the PV voltage, the charger's battery voltage and the
+// energy made today in Wh (there is no discharge current in it). The status bits are read like the standard ones.
+inline bool parse_qpigs_revo(const std::string& text, Status& out) {
+  const std::vector<std::string> f = split_fields(text);
+  if (f.size() < 17) return false;
+  Status s;
+  double* into[12] = {&s.grid_v, &s.grid_hz, &s.out_v, &s.out_hz, &s.out_va, &s.out_w, &s.load_percent, &s.bus_v, &s.battery_v, &s.battery_charge_a, &s.battery_percent, &s.heatsink_c};
+  for (std::size_t i = 0; i < 12; ++i) if (!detail::number(f[i], *into[i])) return false;
+  double energy = 0;
+  if (!detail::number(f[12], s.pv_w) || !detail::number(f[13], s.pv_v) || !detail::number(f[14], s.battery_v_scc) || !detail::number(f[15], energy)) return false;
+  std::uint32_t bits = 0;
+  if (!detail::bits(f[16], 8, bits)) return false;
+  s.sbu_priority = bits & 0x80; s.config_changed = bits & 0x40; s.scc_updated = bits & 0x20; s.load_on = bits & 0x10;
+  s.battery_steady = bits & 0x08; s.charging = bits & 0x04; s.scc_charging = bits & 0x02; s.ac_charging = bits & 0x01;
+  s.has_pv_w = true;
+  s.pv_a = s.pv_v > 1.0 ? s.pv_w / s.pv_v : 0.0;
+  out = s;
+  return true;
+}
+
 // ---- QMOD: the mode ----------------------------------------------------------------------------------------------------------------
 
 // The letter of the reply: P power on, S standby, L line, B battery, F fault, H power saving, D shutdown. False for anything else.
@@ -174,20 +209,28 @@ inline const char* mode_name(char mode) {
 
 // The names of the flags by bit position (the first character of the reply is bit 0). "" marks a reserved bit. The names follow the public document.
 inline const char* warning_name(std::size_t bit) {
-  static const char* const kNames[32] = {
-      "", "inverter_fault", "bus_over", "bus_under", "bus_soft_fail", "line_fail", "opv_short", "inverter_voltage_low",
-      "inverter_voltage_high", "over_temperature", "fan_locked", "battery_voltage_high", "battery_low", "", "battery_under_shutdown", "",
+  static const char* const kNames[36] = {
+      "pv_loss", "inverter_fault", "bus_over", "bus_under", "bus_soft_fail", "line_fail", "opv_short", "inverter_voltage_low",
+      "inverter_voltage_high", "over_temperature", "fan_locked", "battery_voltage_high", "battery_low", "", "battery_under_shutdown", "battery_derating",
       "overload", "eeprom_fault", "inverter_over_current", "inverter_soft_fail", "self_test_fail", "op_dc_voltage_over", "battery_open", "current_sensor_fail",
-      "battery_short", "power_limit", "pv_voltage_high", "mppt_overload_fault", "mppt_overload_warning", "battery_too_low_to_charge", "", ""};
-  return bit < 32 ? kNames[bit] : "";
+      "battery_short", "power_limit", "pv_voltage_high", "mppt_overload_fault", "mppt_overload_warning", "battery_too_low_to_charge", "", "battery_weak",
+      "battery_weak", "battery_weak", "", "battery_equalisation"};
+  return bit < 36 ? kNames[bit] : "";
 }
 
-// The active flags of a reply of 32 '0' and '1' (some models send fewer: the missing ones are off). False when the text is not flags.
+// The active flags of a reply of 32 to 36 '0' and '1' (some models send fewer: the missing ones are off). Names that repeat (the three battery_weak bits) are given once.
+// False when the text is not flags.
 inline bool parse_qpiws(const std::string& text, std::vector<std::string>& active) {
   active.clear();
   if (text.empty() || text.size() > 36) return false;
   for (char c : text) if (c != '0' && c != '1') return false;
-  for (std::size_t bit = 0; bit < text.size() && bit < 32; ++bit) if (text[bit] == '1' && warning_name(bit)[0] != '\0') active.push_back(warning_name(bit));
+  for (std::size_t bit = 0; bit < text.size() && bit < 36; ++bit) {
+    if (text[bit] != '1' || warning_name(bit)[0] == '\0') continue;
+    const std::string name = warning_name(bit);
+    bool seen = false;
+    for (const std::string& known : active) if (known == name) seen = true;
+    if (!seen) active.push_back(name);
+  }
   return true;
 }
 

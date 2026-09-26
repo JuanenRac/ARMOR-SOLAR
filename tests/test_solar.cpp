@@ -246,6 +246,49 @@ static void test_pylontech_cells_and_capacity() {
   CHECK(stack->items[1].get("cells_v") == nullptr && stack->items[2].get("cells_v") == nullptr);
 }
 
+static void test_pylontech_real_formats() {
+  // the newer firmware (US5000 V2.3): Id columns after the extremes, MOSFET temperature and a system alarm state
+  const std::string newer =
+      "@\r\nPower Volt   Curr   Tempr  Tlow   Tlow.Id  Thigh  Thigh.Id  Vlow   Vlow.Id  Vhigh  Vhigh.Id  Base.St  Volt.St  Curr.St  Temp.St  Coulomb  Time                 B.V.St   B.T.St   MosTempr  M.T.St  SysAlarm.St\r\n"
+      "1     50200  -1000  21000  20000  4        22000  9         3340   3        3350   11        Charge   Normal   Normal   Normal   88%      2023-05-06 10:11:12  Normal   Normal   23000     Normal  Normal\r\n"
+      "2     50190  1500   21500  20500  2        22500  8         3338   1        3352   5         Charge   Normal   Normal   Normal   87%      2023-05-06 10:11:12  Normal   Normal   23500     Normal  Normal\r\n"
+      "3     -      -      -      -      -        -      -         -      -        -      -         Absent   -        -        -        -        -                    -        -        -         -       -\r\n";
+  std::vector<pylontech::Module> modules;
+  CHECK(pylontech::parse_pwr(newer, modules) == 3 && modules[0].present && !modules[2].present);
+  CHECK(modules[0].voltage_v == 50.2 && modules[0].current_a == -1.0 && modules[0].temperature_low_c == 20.0 && modules[0].temperature_high_c == 22.0 && modules[0].cell_low_v == 3.34 && modules[0].cell_high_v == 3.35);
+  CHECK(modules[0].soc_percent == 88 && modules[0].base_state == "Charge" && modules[0].system_alarm_state == "Normal" && modules[0].temperatures_c.size() == 2 && modules[0].temperatures_c[1] == 23.0);
+  CHECK(modules[1].current_a == 1.5 && modules[1].cell_high_v == 3.352 && !pylontech::summarise(modules).alarm);
+  std::string alarmed = newer;
+  const std::string needle = "Normal  Normal\r\n2";
+  alarmed.replace(alarmed.find(needle), needle.size(), "Normal  Alarm\r\n2");
+  CHECK(pylontech::parse_pwr(alarmed, modules) == 3 && modules[0].system_alarm_state == "Alarm" && pylontech::summarise(modules).alarm);
+  // the older firmware without B.V.St and B.T.St, and no header at all
+  CHECK(pylontech::parse_pwr("1 49872 -1280 22000 20000 25000 3330 3348 Dischg Normal Normal Normal 88% 2018-11-14 15:12:04\r\n", modules) == 1 && modules[0].cell_voltage_state.empty() && modules[0].soc_percent == 88);
+  CHECK(pylontech::parse_pwr("Power Volt Curr Tempr Tlow Thigh Vlow Vhigh Base.St Volt.St Curr.St Temp.St Coulomb Time\r\n1 49872 -1280 22000 20000 25000 3330 3348 Dischg Normal Normal Normal 88% 2018-11-14 15:12:04\r\n", modules) == 1 && modules[0].cell_high_v == 3.348);
+  // a row cut short, or a header without the columns the reading needs
+  CHECK(pylontech::parse_pwr("1 49872 -1280 22000\r\n", modules) == 0);
+  CHECK(pylontech::parse_pwr("Power Volt Curr Tempr Tlow Thigh Vlow Vhigh Base.St Volt.St Curr.St Temp.St Coulomb\r\n1 49872 -1280 22000 20000 25000 3330 3348 Dischg Normal Normal Normal\r\n", modules) == 0);
+
+  // `bat`: the newer firmware adds the charge in mAH and the balancing flag
+  std::vector<double> cells;
+  double remaining = 0;
+  int balancing = -1;
+  std::string bat = "@\r\nBattery  Volt     Curr     Tempr    Base State   Volt. State  Curr. State  Temp. State  SOC      Coulomb      BAL\r\n";
+  for (int i = 0; i < 15; ++i) bat += std::to_string(i) + " " + std::to_string(3340 + i) + " -1000 22000 Dischg Normal Normal Normal 88% 66550 mAH " + (i == 4 || i == 9 ? "Y" : "N") + "\r\n";
+  CHECK(pylontech::parse_bat(bat, cells, &remaining, &balancing) == 15 && remaining > 66.54 && remaining < 66.56 && balancing == 2);
+  CHECK(pylontech::parse_bat(kBat, cells, &remaining, &balancing) == 15 && remaining < 0 && balancing == 0);   // the older rows have neither
+
+  // `info` of a real module: the rated capacity comes from the Specification; `stat` gives the cycles
+  pylontech::Module m;
+  const std::string info = "@\r\nDevice address      : 1\r\nManufacturer        : Pylon\r\nDevice name         : US5000\r\nMain Soft version   : B66.6\r\nSpecification       : 48V/74AH\r\nCell Number         : 15\r\n";
+  CHECK(pylontech::parse_info(info, m) == 2 && m.model == "US5000" && m.full_capacity_ah == 74.0 && m.capacity_ah < 0);
+  CHECK(pylontech::parse_info("CHARGE Cnt.         : 400\r\nCYCLE Times         : 312\r\n", m) == 1 && m.cycles == 312);
+  pylontech::Module both;
+  CHECK(pylontech::parse_info("Total Capacity : 74000 mAH\r\nSpecification : 48V/50AH\r\n", both) == 1 && both.full_capacity_ah == 74.0);   // the measured one wins
+  pylontech::Module odd;
+  CHECK(pylontech::parse_info("Specification : /\r\nSpecification : 48V\r\nSpecification : 48V/AH\r\nSpecification : 48V/0AH\r\n", odd) == 0 && odd.full_capacity_ah < 0);
+}
+
 static void test_messages() {
   CHECK(topic("perimetro-1", "axpert-1") == "armor/solar/perimetro-1/axpert-1/state");
   CHECK(topic("Bad", "x").empty() && topic("a", "").empty() && topic("a", "b/c").empty() && topic("-a", "b").empty() && topic("a", std::string(33, 'x')).empty());
@@ -273,6 +316,7 @@ int main() {
   test_pylontech_console();
   test_pylontech_frames();
   test_pylontech_cells_and_capacity();
+  test_pylontech_real_formats();
   test_messages();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

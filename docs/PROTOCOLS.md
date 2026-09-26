@@ -21,13 +21,25 @@ capability matrix in ARMOR-DOCS).
 - `QPIGS` fields: grid voltage and frequency, output voltage, frequency, apparent and active power and load percentage, bus voltage, battery voltage,
   charging current, capacity, heat-sink temperature, PV current, PV voltage, battery voltage from the charger, discharging current, eight status bits, and,
   on newer models, the PV charging power. An older reply without the power gets it from voltage times current.
-- The names of the `QPIWS` flags follow the public document; a bit that the document calls reserved has no name and is never reported.
+- The names of the `QPIWS` flags follow the public document (32 to 36 flags: PV loss, battery derating and the *battery weak* and equalisation bits included); a bit that the document calls reserved has no name and is never reported.
+
+### Dialects (chosen by the port's *Protocol* setting; read only in all of them)
+
+- **PI30** is the one above. **auto** asks in PI30 and, after a silence, in PI18, and keeps the one that answered; a whole reply of the other dialect (even `^0` or `(NAK`) switches at once, and three silences make it look again.
+- **REVO** (Revo VM III and others that esphome-pipsolar marks so): the same frames and the same `QPIGS` fields up to the twelfth, then the PV **power** (watts), the PV voltage, the charger's battery voltage and the energy made today; no discharge current, and the PV current is worked out as power over voltage. Its replies may end with **one byte** (the sum of every byte before it, plus one) and CR instead of the CRC; a reply that fits only that makes an *auto* port REVO (a REVO that answers with the CRC has to be chosen by hand). No `QPIWS` is asked: the reading has no warning list.
+- **PI18** (InfiniSolar V, LV5048, SunGoldPower and clones), same 2400 baud: request `^P<command length + 3, three digits><command><CRC><CR>`, reply `^D<payload length + 3, three digits><payload><CRC><CR>`, `^0` refuses and `^1` accepts. The CRC is the same as PI30's. Read: `GS` (28 comma-separated fields: grid V x10, Hz x10, output V x10, Hz x10, VA, W, load %, battery V x10, the charger's battery V x10 (two), discharge and charge current, capacity %, temperatures, PV1 and PV2 power and voltage x10, then the codes: configuration changed, the two chargers' states, load connected, the direction of the battery's power, of the DC/AC conversion and of the line, and the parallel id), `MOD` (00 power on, 01 standby, 02 bypass, 03 battery, 04 fault, 05 hybrid) and `FWS` (a fault code, then 16 warning flags). The requests of the library are `GS`, `MOD`, `FWS`, `PIRI`, `ID`, `VFW`, `PI`, `FLAG` and `T`, and nothing that sets.
+- Sources: the mpp-solar and esphome-pipsolar projects and the sample replies they publish (the tests use them); no unit of any of these families has been connected.
 
 ## Pylontech console
 
 Typing `pwr` prints one row per module of the stack (the master answers for all of them); a module that is not there says `Absent`. The parser takes
-the rows that begin with a module number, tolerates the header, the prompt and the completion line, and refuses a row with a text where a number should
-be. The stack summary uses what physics says of a parallel stack: the same voltage (so the mean), currents that add, the extreme temperatures and cell
+the rows that begin with a module number, tolerates the prompt and the completion line, and refuses a row with a text where a number should be. **The columns are found
+by the names of the header line**, because the firmwares differ: the older ones stop at `B.T.St`, others add `MosTempr` and `M.T.St`, and the newer ones (US5000 V2.3) put an `Id`
+column after `Tlow`, `Thigh`, `Vlow` and `Vhigh` and end with `SysAlarm.St`; the `Time` column is two words. Without a header the older layout is assumed.
+`bat <n>` prints a row per cell (the newer firmwares add the charge in mAH and a `Y` or `N` for the cell being balanced), `info <n>` the identity (`Device name`, `Specification` such as `48V/74AH` for the rated
+capacity, `Cell Number`, versions) and `stat <n>` the history (`CYCLE Times`). The identity and the history are asked once and kept for half an hour.
+Models the firmwares are known under: US2000 / US2000B, US2000C, US2000B Plus, US2KBPL, US3000, US3000C, US5000, UP2500, UP5000, Force L1, Force L2 and the Pytes E-Box 48100R (its console is a relative of Pylontech's).
+ The stack summary uses what physics says of a parallel stack: the same voltage (so the mean), currents that add, the extreme temperatures and cell
 voltages, the mean state of charge. Any state column other than `Normal` raises `alarm`.
 
 ## ANT-BMS
@@ -92,7 +104,7 @@ read and configure it); the node uses the cable, which is the more stable of the
 
 ## Honest limits
 
-- The exact text of the console differs a little between firmware versions; a row with fewer columns is refused rather than guessed.
+- The exact text of the console differs between firmware versions: the columns are found by the header's names, but a row that lacks a column the reading needs (voltage, current, temperatures, cell extremes, the four states, the charge) is refused rather than guessed. The `pwrsys` command of the newer firmwares (the stack's own totals) is not read.
 - The scaling of the RS485 analogue values differs between versions of Pylontech's document; the frame is built and checked here, the values are not read.
 - Nothing has been read from a real device by this project: the ANT-BMS frames in the tests were captured by other people on their own units; the first thing to do with a real one is to capture its replies and add them to the tests.
 - Writing to a BMS or to an inverter (their settings, the MOSFET switches, the charge priorities) is not implemented and will not be until it has been studied with the real equipment and tried in isolation: a wrong value can disconnect a battery under load or change how an inverter feeds the house, and an ANT-BMS asks for a password to accept a write.

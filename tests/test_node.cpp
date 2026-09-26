@@ -227,7 +227,7 @@ struct Bench {
   std::uint64_t now = 0;
   std::vector<std::string> messages;
   std::vector<std::string> topics;
-  Bench(config::Kind kind, int poll_s, int modules = 0) : poller(kind, "solar-1", kind == config::Kind::kVoltronic ? "axpert-1" : "us3000-1", poll_s, modules) {}
+  Bench(config::Kind kind, int poll_s, int modules = 0, const std::string& dialect = "auto") : poller(kind, "solar-1", kind == config::Kind::kVoltronic ? "axpert-1" : "us3000-1", poll_s, modules, dialect) {}
   void run(std::uint64_t until_ms, std::uint64_t latency_ms = 40) {
     std::vector<std::pair<std::uint64_t, std::vector<std::uint8_t>>> in_flight;
     for (; now < until_ms; now += 10) {
@@ -238,6 +238,7 @@ struct Bench {
       if (!out.empty()) {
         std::string command = as_text(out);
         if (command.size() > 3 && command[0] == 'Q') command = command.substr(0, command.size() - 3);   // the CRC and CR are not part of the name
+        else if (command.size() > 8 && command[0] == '^') command = "^" + command.substr(5, command.size() - 8);   // "^P005GS" + CRC + CR is "^GS"
         asked.push_back(command);
         const auto answer = answers.find(command);
         if (answer != answers.end()) in_flight.push_back({now + latency_ms, answer->second});
@@ -260,6 +261,20 @@ static std::string bat_table() {
   for (int i = 0; i < 15; ++i) t += std::to_string(i) + " " + std::to_string(3324 + (i * 7) % 25) + " -1281 22000 Dischg Normal Normal Normal 88%\r\n";
   return t + "Command completed successfully\r\n$$\r\npylon>";
 }
+static const char* kPwr5000 =
+    "@\r\n"
+    "Power Volt   Curr   Tempr  Tlow   Tlow.Id  Thigh  Thigh.Id  Vlow   Vlow.Id  Vhigh  Vhigh.Id  Base.St  Volt.St  Curr.St  Temp.St  Coulomb  Time                 B.V.St   B.T.St   MosTempr  M.T.St  SysAlarm.St\r\n"
+    "1     50200  -1000  21000  20000  4        22000  9         3340   3        3350   11        Dischg   Normal   Normal   Normal   88%      2023-05-06 10:11:12  Normal   Normal   23000     Normal  Normal\r\n"
+    "Command completed successfully\r\n$$\r\npylon>";
+static std::string bat_table_mah() {
+  std::string t = "@\r\nBattery  Volt     Curr     Tempr    Base State   Volt. State  Curr. State  Temp. State  SOC      Coulomb      BAL\r\n";
+  for (int i = 0; i < 15; ++i) t += std::to_string(i) + " " + std::to_string(3340 + i) + " -1000 22000 Dischg Normal Normal Normal 88% 66550 mAH " + (i == 4 ? "Y" : "N") + "\r\n";
+  return t + "Command completed successfully\r\n$$\r\npylon>";
+}
+static const char* kInfoReal =
+    "@\r\nDevice address      : 1\r\nManufacturer        : Pylon\r\nDevice name         : US5000\r\nBoard version       : PHILTEC_BOARD_V2\r\nMain Soft version   : B66.6\r\n"
+    "Specification       : 48V/74AH\r\nCell Number         : 15\r\nMax Dischg Curr     : -100000mA\r\nMax Charge Curr     : 100000mA\r\nCommand completed successfully\r\n$$\r\npylon>";
+static const char* kStat = "@\r\nDevice address      : 1\r\nData Items          : 100\r\nCHARGE Cnt.         : 400\r\nCYCLE Times         : 312\r\nCommand completed successfully\r\n$$\r\npylon>";
 static const char* kInfo = "@\r\nDevice address      : 1\r\nDevice name         : US3000C\r\nRemain Capacity     : 65100 mAH\r\nTotal Capacity      : 74000 mAH\r\nCycle Times         : 312\r\nCommand completed successfully\r\n$$\r\npylon>";
 
 static std::vector<std::uint8_t> bytes_of(const std::string& text) { return std::vector<std::uint8_t>(text.begin(), text.end()); }
@@ -313,6 +328,203 @@ static void test_voltronic_faults() {
   CHECK(odd.messages.empty() && odd.poller.stats().last_error == "format");
 }
 
+// ---- the other dialects of the inverters ------------------------------------------------------------------------------------------------
+
+// A reply of the PI18 dialect: ^D<payload length + 3><payload><CRC><CR>, or ^0 / ^1 alone.
+static std::vector<std::uint8_t> reply18(const std::string& payload, char kind = 'D') {
+  std::string head = "^";
+  head += kind;
+  if (kind == 'D') {
+    const std::size_t length = payload.size() + 3;
+    head += std::string(1, static_cast<char>('0' + length / 100)) + static_cast<char>('0' + (length / 10) % 10) + static_cast<char>('0' + length % 10) + payload;
+  }
+  std::vector<std::uint8_t> frame(head.begin(), head.end());
+  const auto crc = voltronic::wire_crc(frame.data(), frame.size());
+  frame.push_back(crc[0]); frame.push_back(crc[1]); frame.push_back('\r');
+  return frame;
+}
+// A reply of the REVO dialect: the text, a one-byte checksum (the sum of the bytes before it plus one) and CR.
+static std::vector<std::uint8_t> reply_chk(const std::string& text) {
+  std::vector<std::uint8_t> frame{'('};
+  frame.insert(frame.end(), text.begin(), text.end());
+  unsigned sum = 1;
+  for (std::uint8_t b : frame) sum += b;
+  frame.push_back(static_cast<std::uint8_t>(sum & 0xFF)); frame.push_back('\r');
+  return frame;
+}
+
+static const char* kGs18 = "2320,500,2300,500,0161,0119,003,575,575,000,000,012,100,030,000,000,0856,0000,1038,0000,0,2,0,1,1,1,1,0";
+static const char* kFwsClean = "00,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0";
+static const char* kRevoQpigs = "232.0 50.0 230.0 50.0 0161 0119 003 460 57.50 012 100 0069 0856 103.8 57.45 00420 00110110 00 00 00856";
+
+static void test_pi18_pieces() {
+  std::vector<std::uint8_t> asked;
+  CHECK(voltronic::pi18::build_command("GS", asked) && asked.size() == 10 && asked[0] == '^' && asked[1] == 'P' && asked[2] == '0' && asked[3] == '0' && asked[4] == '5' && asked[5] == 'G' && asked[6] == 'S' && asked[9] == '\r');
+  const auto crc = voltronic::wire_crc(asked.data(), 7);
+  CHECK(asked[7] == crc[0] && asked[8] == crc[1]);
+  CHECK(voltronic::pi18::build_command("MOD", asked) && asked[4] == '6' && voltronic::pi18::build_command("FWS", asked) && asked[4] == '6');
+  // only reading commands exist
+  CHECK(!voltronic::pi18::build_command("PCP0", asked) && asked.empty());
+  CHECK(!voltronic::pi18::build_command("POP0", asked) && !voltronic::pi18::build_command("MUCHGC050", asked) && !voltronic::pi18::build_command("", asked));
+  // a reply is cut open, and refused when its CRC or its declared length is wrong
+  voltronic::pi18::Kind kind;
+  std::string payload;
+  std::vector<std::uint8_t> good = reply18(kGs18);
+  CHECK(voltronic::pi18::parse_reply(good.data(), good.size(), kind, payload) && kind == voltronic::pi18::Kind::kData && payload == kGs18);
+  std::vector<std::uint8_t> bad = good;
+  bad[9] ^= 1;
+  CHECK(!voltronic::pi18::parse_reply(bad.data(), bad.size(), kind, payload));
+  std::vector<std::uint8_t> nak = reply18("", '0'), ack = reply18("", '1');
+  CHECK(voltronic::pi18::parse_reply(nak.data(), nak.size(), kind, payload) && kind == voltronic::pi18::Kind::kNak);
+  CHECK(voltronic::pi18::parse_reply(ack.data(), ack.size(), kind, payload) && kind == voltronic::pi18::Kind::kAck);
+  std::vector<std::uint8_t> lie = good;                       // a declared length that is not the length: re-signed so only the length is wrong
+  lie[4] = '9';
+  const auto lie_crc = voltronic::wire_crc(lie.data(), lie.size() - 3);
+  lie[lie.size() - 3] = lie_crc[0]; lie[lie.size() - 2] = lie_crc[1];
+  CHECK(!voltronic::pi18::parse_reply(lie.data(), lie.size(), kind, payload));
+  // the framer: noise, then a '^' starts a frame; a second '^' starts over
+  voltronic::pi18::ReplyFramer framer;
+  std::vector<std::uint8_t> got;
+  bool whole = false;
+  for (std::uint8_t b : std::vector<std::uint8_t>{'x', 'y', '^', 'D'}) whole = whole || framer.feed(b, got);
+  CHECK(!whole);
+  for (std::uint8_t b : good) { if (framer.feed(b, got)) whole = true; }
+  CHECK(whole && got == good);
+  // the general status
+  voltronic::Status s;
+  CHECK(voltronic::pi18::parse_gs(kGs18, s) && s.grid_v == 232.0 && s.grid_hz == 50.0 && s.out_v == 230.0 && s.out_w == 119 && s.out_va == 161 && s.load_percent == 3);
+  CHECK(s.battery_v == 57.5 && s.battery_charge_a == 12 && s.battery_percent == 100 && s.heatsink_c == 30 && s.pv_w == 856 && s.has_pv_w && s.pv_v > 103.7 && s.pv_v < 103.9);
+  CHECK(s.pv_a > 8.2 && s.pv_a < 8.3 && s.load_on && s.scc_charging && s.charging && s.ac_charging && !s.config_changed);
+  CHECK(!voltronic::pi18::parse_gs("1,2,3", s) && !voltronic::pi18::parse_gs("", s));
+  // two PV inputs add up; the stronger one's voltage is shown
+  std::string two = kGs18;
+  two.replace(two.find("0856,0000,1038,0000"), 19, "0400,0300,0900,1100");
+  CHECK(voltronic::pi18::parse_gs(two, s) && s.pv_w == 700 && s.pv_v > 89.9 && s.pv_v < 90.1);
+  char mode = 0;
+  CHECK(voltronic::pi18::parse_mod("00", mode) && mode == 'P' && voltronic::pi18::parse_mod("01", mode) && mode == 'S' && voltronic::pi18::parse_mod("03", mode) && mode == 'B' && voltronic::pi18::parse_mod("05", mode) && mode == 'L');
+  CHECK(voltronic::pi18::parse_mod("04", mode) && mode == 'F' && !voltronic::pi18::parse_mod("06", mode) && !voltronic::pi18::parse_mod("0", mode) && !voltronic::pi18::parse_mod("1A", mode));
+  // faults and warnings
+  std::vector<std::string> warnings;
+  CHECK(voltronic::pi18::parse_fws(kFwsClean, warnings) && warnings.empty());
+  CHECK(voltronic::pi18::parse_fws("00,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0", warnings) && warnings.size() == 2 && warnings[0] == "line_fail" && warnings[1] == "battery_low");
+  CHECK(voltronic::pi18::parse_fws("07,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0", warnings) && warnings.size() == 2 && warnings[0] == "inverter_fault" && warnings[1] == "fault_code_7");
+  CHECK(!voltronic::pi18::parse_fws("00,0,0", warnings));
+}
+
+static void test_revo_and_warning_bits() {
+  voltronic::Status s;
+  CHECK(voltronic::parse_qpigs_revo(kRevoQpigs, s) && s.pv_w == 856 && s.has_pv_w && s.pv_v > 103.7 && s.pv_v < 103.9 && s.pv_a > 8.2 && s.pv_a < 8.3 && s.battery_v_scc > 57.4 && s.battery_v_scc < 57.5);
+  CHECK(s.grid_v == 232.0 && s.out_w == 119 && s.battery_percent == 100 && s.charging && s.scc_charging && !s.ac_charging);
+  CHECK(!voltronic::parse_qpigs_revo("232.0 50.0", s));
+  // the checksum reply
+  std::vector<std::uint8_t> chk = reply_chk(kRevoQpigs);
+  std::string text;
+  CHECK(voltronic::parse_reply_revo(chk.data(), chk.size(), text) && text == kRevoQpigs);
+  CHECK(!voltronic::parse_reply(chk.data(), chk.size(), text));                     // the standard check refuses it
+  chk[chk.size() - 2] ^= 1;
+  CHECK(!voltronic::parse_reply_revo(chk.data(), chk.size(), text));
+  std::vector<std::uint8_t> crc = reply(kRevoQpigs);
+  CHECK(voltronic::parse_reply_revo(crc.data(), crc.size(), text) && text == kRevoQpigs);   // a CRC reply is accepted too
+  // 36 warning flags: the three "battery weak" bits give one name; the ones past bit 31 are read
+  std::vector<std::string> warnings;
+  std::string bits(36, '0');
+  bits[0] = '1'; bits[15] = '1'; bits[31] = '1'; bits[32] = '1'; bits[33] = '1'; bits[35] = '1';
+  CHECK(voltronic::parse_qpiws(bits, warnings) && warnings.size() == 4 && warnings[0] == "pv_loss" && warnings[1] == "battery_derating" && warnings[2] == "battery_weak" && warnings[3] == "battery_equalisation");
+  CHECK(voltronic::parse_qpiws(std::string(32, '0'), warnings) && warnings.empty());
+}
+
+static void test_inverter_dialects() {
+  // PI18 chosen by hand
+  Bench b(config::Kind::kVoltronic, 5, 0, "pi18");
+  b.answers["^GS"] = reply18(kGs18);
+  b.answers["^MOD"] = reply18("03");
+  b.answers["^FWS"] = reply18("00,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0");
+  b.run(12000);
+  CHECK(b.asked.size() >= 6 && b.asked[0] == "^GS" && b.asked[1] == "^MOD" && b.asked[2] == "^FWS" && b.asked[3] == "^GS");
+  CHECK(b.messages.size() >= 2 && b.poller.detail() == "pi18" && b.poller.state(b.now) == "reporting");
+  armor::json::Value doc;
+  CHECK(armor::json::parse(b.messages[0], doc) && doc.get("kind")->text == "inverter" && doc.get("mode")->text == "battery" && doc.get("pv_w")->number == 856 && doc.get("warnings")->items.size() == 1);
+  CHECK(doc.get("warnings")->items[0].text == "battery_low");
+  CHECK(b.poller.stats().replies_ok == 3 * b.messages.size() && b.poller.stats().timeouts == 0);
+
+  // "auto" finds PI30 first, with the very first request
+  Bench pi30(config::Kind::kVoltronic, 5);
+  pi30.answers["QPIGS"] = reply(kQpigs); pi30.answers["QMOD"] = reply("L"); pi30.answers["QPIWS"] = reply(std::string(32, '0'));
+  CHECK(pi30.poller.detail().empty());
+  pi30.run(6000);
+  CHECK(pi30.messages.size() >= 1 && pi30.poller.detail() == "pi30" && pi30.asked[0] == "QPIGS");
+
+  // "auto" on a PI18 inverter that says nothing to the older frames: PI30 times out, then PI18 is tried and kept
+  Bench found(config::Kind::kVoltronic, 5);
+  found.answers["^GS"] = reply18(kGs18); found.answers["^MOD"] = reply18("05"); found.answers["^FWS"] = reply18(kFwsClean);
+  found.run(20000);
+  CHECK(found.asked[0] == "QPIGS" && found.asked[1] == "^GS" && found.messages.size() >= 2 && found.poller.detail() == "pi18");
+  CHECK(found.poller.stats().timeouts == 1);
+  // it goes quiet: after three misses it looks again (and finds the older dialect if that is what comes back)
+  found.answers.clear();
+  found.answers["QPIGS"] = reply(kQpigs); found.answers["QMOD"] = reply("L"); found.answers["QPIWS"] = reply(std::string(32, '0'));
+  const std::size_t before = found.messages.size();
+  found.run(found.now + 40000);
+  CHECK(found.messages.size() > before && found.poller.detail() == "pi30");
+
+  // "auto" on a PI18 inverter that refuses the older frames with ^0: the reply is a whole PI18 frame, so it switches at once
+  Bench nak(config::Kind::kVoltronic, 5);
+  nak.answers["QPIGS"] = reply18("", '0');
+  nak.answers["^GS"] = reply18(kGs18); nak.answers["^MOD"] = reply18("00"); nak.answers["^FWS"] = reply18(kFwsClean);
+  nak.run(6000);
+  CHECK(nak.asked[0] == "QPIGS" && nak.asked[1] == "^GS" && nak.messages.size() >= 1 && nak.poller.detail() == "pi18" && nak.poller.stats().timeouts == 0);
+
+  // REVO: checksum replies make it REVO by themselves, and no warning list is asked
+  Bench revo(config::Kind::kVoltronic, 5);
+  revo.answers["QPIGS"] = reply_chk(kRevoQpigs); revo.answers["QMOD"] = reply_chk("L");
+  revo.run(12000);
+  CHECK(revo.poller.detail() == "revo" && revo.messages.size() >= 2 && revo.asked[0] == "QPIGS" && revo.asked[1] == "QMOD" && revo.asked[2] == "QPIGS");
+  CHECK(armor::json::parse(revo.messages[0], doc) && doc.get("pv_w")->number == 856 && doc.get("mode")->text == "line" && doc.get("warnings")->items.empty());
+  // REVO chosen by hand also takes CRC replies
+  Bench revo_crc(config::Kind::kVoltronic, 5, 0, "revo");
+  revo_crc.answers["QPIGS"] = reply(kRevoQpigs); revo_crc.answers["QMOD"] = reply("L");
+  revo_crc.run(8000);
+  CHECK(revo_crc.poller.detail() == "revo" && revo_crc.messages.size() >= 1 && armor::json::parse(revo_crc.messages[0], doc) && doc.get("pv_w")->number == 856);
+
+  // a dialect chosen by hand is never given up: silence keeps asking the same thing
+  Bench fixed(config::Kind::kVoltronic, 5, 0, "pi30");
+  fixed.run(30000);
+  bool only_pi30 = !fixed.asked.empty();
+  for (const std::string& a : fixed.asked) if (a != "QPIGS") only_pi30 = false;
+  CHECK(only_pi30 && fixed.poller.detail() == "pi30" && fixed.messages.empty());
+  // a PI18 port hears nothing of the older frames, and a checksum-only reply is not a PI18 reply
+  Bench mismatched(config::Kind::kVoltronic, 5, 0, "pi18");
+  mismatched.answers["^GS"] = reply(kQpigs);
+  mismatched.run(9000);
+  CHECK(mismatched.messages.empty() && mismatched.poller.detail() == "pi18");
+  // a garbled PI18 reply is named, and a refusal too
+  Bench garbled(config::Kind::kVoltronic, 5, 0, "pi18");
+  std::vector<std::uint8_t> broken = reply18(kGs18);
+  broken[8] ^= 1;
+  garbled.answers["^GS"] = broken;
+  garbled.run(9000);
+  CHECK(garbled.messages.empty() && garbled.poller.stats().last_error == "crc");
+  Bench refuses(config::Kind::kVoltronic, 5, 0, "pi18");
+  refuses.answers["^GS"] = reply18("", '0');
+  refuses.run(9000);
+  CHECK(refuses.messages.empty() && refuses.poller.stats().last_error == "nak");
+  Bench odd(config::Kind::kVoltronic, 5, 0, "pi18");
+  odd.answers["^GS"] = reply18("1,2,3");
+  odd.run(9000);
+  CHECK(odd.messages.empty() && odd.poller.stats().last_error == "format");
+  // the dialect in a stored configuration
+  config::Settings s = valid_settings();
+  s.ports[0] = {true, "voltronic", "axpert-1", 0, 16, 15, -1, 0, 0, "pi18"};
+  CHECK(config::validate(s).empty());
+  s.ports[0].dialect = "pi99";
+  CHECK(has(config::validate(s), "ports.0.dialect", "invalid"));
+  s.ports[0].dialect = "revo";
+  config::Settings back;
+  config::Problems problems;
+  CHECK(config::load(config::to_json(s, true), config::default_settings("000000"), back, problems) && back.ports[0].dialect == "revo");
+  CHECK(config::load("{\"ports\":[{\"dialect\":\"pi30\"}]}", s, back, problems) && back.ports[0].dialect == "pi30" && config::default_settings("000000").ports[0].dialect == "auto");
+}
+
 static void test_pylontech_port() {
   Bench b(config::Kind::kPylontech, 10);
   b.answers["pwr\r"] = bytes_of(kPwr);
@@ -320,8 +532,10 @@ static void test_pylontech_port() {
   b.answers["bat 2\r"] = bytes_of(bat_table());
   b.answers["info 1\r"] = bytes_of(kInfo);
   b.answers["info 2\r"] = bytes_of(kInfo);
+  b.answers["stat 1\r"] = bytes_of(kStat);
+  b.answers["stat 2\r"] = bytes_of(kStat);
   b.run(15000);
-  CHECK(b.asked.size() >= 6 && b.asked[0] == "pwr\r" && b.asked[1] == "bat 1\r" && b.asked[2] == "info 1\r" && b.asked[3] == "bat 2\r" && b.asked[4] == "info 2\r" && b.asked[5] == "pwr\r");
+  CHECK(b.asked.size() >= 8 && b.asked[0] == "pwr\r" && b.asked[1] == "bat 1\r" && b.asked[2] == "info 1\r" && b.asked[3] == "stat 1\r" && b.asked[4] == "bat 2\r" && b.asked[5] == "info 2\r" && b.asked[6] == "stat 2\r" && b.asked[7] == "pwr\r");
   CHECK(b.messages.size() == 2);        // module 3 is absent and is never asked about
   armor::json::Value doc;
   CHECK(armor::json::parse(b.messages[0], doc) && doc.get("kind")->text == "battery" && doc.get("modules")->number == 2 && doc.get("full_capacity_ah")->number > 147.9);
@@ -332,8 +546,24 @@ static void test_pylontech_port() {
   one.answers["pwr\r"] = bytes_of(kPwr);
   one.answers["bat 1\r"] = bytes_of(bat_table());
   one.answers["info 1\r"] = bytes_of(kInfo);
+  one.answers["stat 1\r"] = bytes_of(kStat);
   one.run(12000);
-  CHECK(one.asked.size() >= 4 && one.asked[0] == "pwr\r" && one.asked[1] == "bat 1\r" && one.asked[2] == "info 1\r" && one.asked[3] == "pwr\r" && one.messages.size() == 2);
+  CHECK(one.asked.size() >= 5 && one.asked[0] == "pwr\r" && one.asked[1] == "bat 1\r" && one.asked[2] == "info 1\r" && one.asked[3] == "stat 1\r" && one.asked[4] == "pwr\r" && one.messages.size() == 2);
+
+  // a battery of the newer firmware (US5000 V2.3): its own header, the charge in mAH on the cells' rows, the identity in `info` and the cycles in `stat`. The identity and the
+  // history are asked once and kept: the next cycle asks `pwr` and `bat` only, and still reports them
+  Bench real(config::Kind::kPylontech, 10, 1);
+  real.answers["pwr\r"] = bytes_of(kPwr5000);
+  real.answers["bat 1\r"] = bytes_of(bat_table_mah());
+  real.answers["info 1\r"] = bytes_of(kInfoReal);
+  real.answers["stat 1\r"] = bytes_of(kStat);
+  real.run(25000);
+  CHECK(real.asked.size() >= 8 && real.asked[0] == "pwr\r" && real.asked[1] == "bat 1\r" && real.asked[2] == "info 1\r" && real.asked[3] == "stat 1\r" && real.asked[4] == "pwr\r" && real.asked[5] == "bat 1\r" && real.asked[6] == "pwr\r");
+  CHECK(real.messages.size() == 3);
+  for (const std::string& message : real.messages) {
+    CHECK(armor::json::parse(message, doc) && doc.get("model")->text == "US5000" && doc.get("cycles")->number == 312 && doc.get("full_capacity_ah")->number > 73.9 && doc.get("full_capacity_ah")->number < 74.1);
+    CHECK(doc.get("capacity_ah")->number > 66.5 && doc.get("capacity_ah")->number < 66.6 && doc.get("stack")->items[0].get("temperatures_c")->items.size() == 2);
+  }
 }
 
 static void test_pylontech_faults() {
@@ -692,6 +922,9 @@ int main() {
   test_soft_uart();
   test_voltronic_port();
   test_voltronic_faults();
+  test_pi18_pieces();
+  test_revo_and_warning_bits();
+  test_inverter_dialects();
   test_pylontech_port();
   test_pylontech_faults();
   test_raw_port();

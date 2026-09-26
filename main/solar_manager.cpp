@@ -97,7 +97,7 @@ void port_task(void* argument) {
     return;
   }
   // on the heap: its raw log and its readings would eat the port task's small stack
-  const std::unique_ptr<solar::Poller> poller_owner = std::make_unique<solar::Poller>(kind, slot.node_id, cfg.name, config::effective_poll_s(cfg), cfg.modules);
+  const std::unique_ptr<solar::Poller> poller_owner = std::make_unique<solar::Poller>(kind, slot.node_id, cfg.name, config::effective_poll_s(cfg), cfg.modules, cfg.dialect);
   solar::Poller& poller = *poller_owner;
   std::uint8_t buffer[256];
   std::uint64_t last_fill_ms = 0, last_raw_total = 0;
