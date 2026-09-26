@@ -289,6 +289,44 @@ static void test_pylontech_real_formats() {
   CHECK(pylontech::parse_info("Specification : /\r\nSpecification : 48V\r\nSpecification : 48V/AH\r\nSpecification : 48V/0AH\r\n", odd) == 0 && odd.full_capacity_ah < 0);
 }
 
+// What real batteries printed on their console (captured with the maker's own program on units of the same models: US2000C with three firmware versions, an
+// US2KBPL, an US3000C and a 24 V unit). The console echoes every line followed by an empty one, and some units leave fields empty. Serial numbers are replaced.
+static std::string echoed(const std::string& lines) {
+  std::string out;
+  for (char c : lines) { out += c; if (c == '\n') out += "\r\n"; }
+  return out;
+}
+
+static void test_pylontech_real_captures() {
+  const std::string us2000c =
+      "@\r\nDevice address      : 1\r\nManufacturer        : Pylon\r\nDevice name         : US2000C\r\nBoard version       : V10R04\r\nBoard               : NF4.E2\r\n"
+      "Main Soft version   : B69.12.0.0\r\nSoft  version       : V1.3\r\nBoot  version       : V1.0\r\nComm version        : V2.0\r\nRelease Date        : 21-12-27\r\n"
+      "Barcode             : K000000C00000000\r\nSpecification       : 48V/50AH\r\nCell Number         : 15\r\nMax Dischg Curr     : -90000mA\r\nMax Charge Curr     : 90000mA\r\n"
+      "EPONPort rate       : 1200\r\nConsole Port rate   : 115200\r\nCommand completed successfully\r\n$$\r\npylon_debug>\r\n";
+  pylontech::Module m;
+  CHECK(pylontech::parse_info(echoed(us2000c), m) == 2 && m.model == "US2000C" && m.full_capacity_ah == 50.0);
+  // an US2KBPL (what a "US2000B" says of itself) and an US3000C with empty fields
+  const std::string us2kbpl = "@\r\nDevice address      : 1\r\nManufacturer        : Pylon\r\nDevice name         : US2KBPL\r\nBoard version       : PHANTOMSAV10R03\r\nMain Soft version   : B65.12\r\n"
+                              "Soft  version       : V2.3\r\nBarcode             : PPT000000000000\r\n\r\nSpecification       : 48V/50AH\r\nCell Number         : 15\r\nConsole Port rate   : 115200\r\nCommand completed successfully\r\n";
+  pylontech::Module b;
+  CHECK(pylontech::parse_info(echoed(us2kbpl), b) == 2 && b.model == "US2KBPL" && b.full_capacity_ah == 50.0);
+  const std::string us3000c = "@\r\nDevice address      : 1\r\nManufacturer        : \r\nDevice name         : US3000C\r\nBoard version       : \r\nMain Soft version   : B68.8.0.0\r\n"
+                              "Barcode             :                 \r\nSpecification       : 48V/74AH\r\nCell Number         : 15\r\nMax Dischg Curr     : -90000mA\r\nCommand completed successfully\r\n";
+  pylontech::Module c;
+  CHECK(pylontech::parse_info(echoed(us3000c), c) == 2 && c.model == "US3000C" && c.full_capacity_ah == 74.0);
+  // `stat`: the counters of the battery's life; the cycles are "CYCLE Times". A newer firmware adds lines that end in "Hours" and a line without a colon opens the list.
+  const std::string stat =
+      "@\r\nDevice address           1\r\nData Items      :     1938\r\nCharge Times    :    49299\r\nBat OV Times    :      755\r\nSOH Times       :        0\r\nCYCLE Times     :     1344\r\n"
+      "Pwr Percent     :       42\r\nPwr Coulomb     : 147752280\r\nDsg Cap         : 149287073\r\nHT Cnt          :        0 Hours\r\nCurrent Greater 70A Hours:        0 Hours\r\n"
+      "System Error Times:        0\r\nCommand completed successfully\r\n$$\r\npylon_debug>\r\n";
+  CHECK(pylontech::parse_info(echoed(stat), c) == 1 && c.cycles == 1344 && c.model == "US3000C");
+  pylontech::Module fresh;
+  CHECK(pylontech::parse_info(echoed("@\r\nCYCLE Times     :        0\r\nPwr Coulomb     : 180000000\r\nCommand completed successfully\r\n"), fresh) == 1 && fresh.cycles == 0);
+  // a console that does not know the command answers with a text and no completion line: nothing is read
+  pylontech::Module none;
+  CHECK(pylontech::parse_info("@\r\nInvalid command or fail to excute.\r\nUsage:\r\nShow recorded data - datalist [event/history]\r\n$$\r\npylon_debug>\r\n", none) == 0);
+}
+
 static void test_messages() {
   CHECK(topic("perimetro-1", "axpert-1") == "armor/solar/perimetro-1/axpert-1/state");
   CHECK(topic("Bad", "x").empty() && topic("a", "").empty() && topic("a", "b/c").empty() && topic("-a", "b").empty() && topic("a", std::string(33, 'x')).empty());
@@ -317,6 +355,7 @@ int main() {
   test_pylontech_frames();
   test_pylontech_cells_and_capacity();
   test_pylontech_real_formats();
+  test_pylontech_real_captures();
   test_messages();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

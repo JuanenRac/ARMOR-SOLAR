@@ -25,7 +25,7 @@
 
 ---
 
-**Vérification d'honnêteté - ce qui fonctionne aujourd'hui:** **Maturité : scaffolding.** Le firmware se compile dans le conteneur ESP-IDF 5.4.2, son cœur (les réglages, l'échange avec chaque type d'équipement, l'arithmétique de l'UART émulé : 678 contrôles) est testé sur ordinateur avec des équipements simulés, les messages qu'il produit sont acceptés par ARMOR-COMMON et le panneau a été essayé dans un navigateur face à un nœud simulé. **Il n'a jamais tourné sur une carte et aucun onduleur ni batterie n'a été connecté** : le Wi-Fi, le panneau en TLS, la mise à jour, les UART matériels et émulés et les formats des protocoles (écrits d'après des documents publics et de mémoire) sont inessayés. Les trames ANT-BMS des tests ont été capturées par d'autres sur leurs propres appareils : ce projet n'en a lu aucune lui-même.
+**Vérification d'honnêteté - ce qui fonctionne aujourd'hui:** **Maturité : scaffolding.** Le firmware se compile dans le conteneur ESP-IDF 5.4.2, son cœur (les réglages, l'échange avec chaque type d'équipement, l'arithmétique de l'UART émulé : 684 contrôles) est testé sur ordinateur avec des équipements simulés, les messages qu'il produit sont acceptés par ARMOR-COMMON et le panneau a été essayé dans un navigateur face à un nœud simulé. **Il n'a jamais tourné sur une carte et aucun onduleur ni batterie n'a été connecté** : le Wi-Fi, le panneau en TLS, la mise à jour, les UART matériels et émulés et les formats des protocoles (écrits d'après des documents publics et de mémoire) sont inessayés. Les trames ANT-BMS des tests ont été capturées par d'autres sur leurs propres appareils : ce projet n'en a lu aucune lui-même.
 
 ---
 

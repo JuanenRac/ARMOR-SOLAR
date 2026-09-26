@@ -25,7 +25,7 @@
 
 ---
 
-**Ehrlichkeitsprüfung - was heute läuft:** **Reifegrad: Scaffolding.** Die Firmware baut im ESP-IDF-5.4.2-Container, ihr Kern (die Einstellungen, der Austausch mit jeder Geräteart, die Arithmetik des emulierten UART: 678 Prüfungen) ist am Rechner mit Stellvertreter-Geräten getestet, die Nachrichten, die sie erzeugt, akzeptiert ARMOR-COMMON, und das Panel wurde in einem Browser gegen einen Stellvertreter-Knoten ausprobiert. **Sie lief nie auf einer Platine, und es wurde kein Wechselrichter und keine Batterie angeschlossen**: das WLAN, das Panel mit TLS, das Update, die Hardware- und emulierten UARTs und die Formate der Protokolle (aus öffentlichen Dokumenten und aus dem Gedächtnis geschrieben) sind unerprobt. Die ANT-BMS-Frames in den Tests wurden von anderen an deren eigenen Geräten aufgezeichnet: dieses Projekt hat selbst noch keines gelesen.
+**Ehrlichkeitsprüfung - was heute läuft:** **Reifegrad: Scaffolding.** Die Firmware baut im ESP-IDF-5.4.2-Container, ihr Kern (die Einstellungen, der Austausch mit jeder Geräteart, die Arithmetik des emulierten UART: 684 Prüfungen) ist am Rechner mit Stellvertreter-Geräten getestet, die Nachrichten, die sie erzeugt, akzeptiert ARMOR-COMMON, und das Panel wurde in einem Browser gegen einen Stellvertreter-Knoten ausprobiert. **Sie lief nie auf einer Platine, und es wurde kein Wechselrichter und keine Batterie angeschlossen**: das WLAN, das Panel mit TLS, das Update, die Hardware- und emulierten UARTs und die Formate der Protokolle (aus öffentlichen Dokumenten und aus dem Gedächtnis geschrieben) sind unerprobt. Die ANT-BMS-Frames in den Tests wurden von anderen an deren eigenen Geräten aufgezeichnet: dieses Projekt hat selbst noch keines gelesen.
 
 ---
 
