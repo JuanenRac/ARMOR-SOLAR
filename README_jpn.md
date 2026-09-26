@@ -14,7 +14,7 @@
   🇯🇵 <b>日本語</b>
 </p>
 
-### 太陽光インバーターとバッテリーの監視：シリアルプロトコルとゲートウェイノードのメッセージ
+### 太陽光ゲートウェイノード：最大 10 個のシリアルポートでインバーターとバッテリーを読み取る（ESP32-S3 ファームウェア、その Web パネル、プロトコルライブラリ）
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-GPL%203.0-blue.svg" alt="GPL 3.0">
@@ -25,34 +25,43 @@
 
 ---
 
-**正直さのチェック - 今日動いているもの:** **成熟度：scaffolding。** プロトコルライブラリ（100 件のチェック）は、手書きの典型的な応答から、Voltronic / MPP Solar インバーターと Pylontech コンソールをセルごとに、容量も含めてデコードします。出力するメッセージは ARMOR-COMMON が検証し、ARMOR-SERVER が読み取り、Studio の「インバーター」と「バッテリー」メニューに表示されます。すべて生成した測定値によるものです。**インバーターもバッテリーも接続されたことはなく**、ノードのファームウェアもまだ無く、ANT-BMS はプロトコル文書がプロジェクトに無いためデコードしていません。
+**正直さのチェック - 今日動いているもの:** **成熟度：scaffolding。** ファームウェアは ESP-IDF 5.4.2 コンテナーでビルドでき、そのコア（設定、各種機器とのやり取り、エミュレート UART の計算：254 件のチェック）は代役の機器を使ってコンピューターでテスト済みで、生成するメッセージは ARMOR-COMMON に受理され、パネルは代役ノードに対してブラウザーで試しました。**ボード上で動いたことはなく、インバーターもバッテリーも接続されたことはありません**：Wi-Fi、TLS のパネル、更新、ハードウェアとエミュレートの UART、そしてプロトコルの書式（公開文書と記憶から書いたもの）は未試験です。テストにある ANT-BMS のフレームは他の人が自分の機器で採取したもので、このプロジェクト自身はまだ 1 台も読み取っていません。
 
 ---
 
 ## 🎯 概要
 
+* **ノードのファームウェア**（ESP32-S3-WROOM-1 N16R8、Wi-Fi のみ）：シリアルポートは 10 個（ハードウェア UART 3 つとエミュレート 7 つ、最大 19200 ボー）。それぞれ独立し、インバーター、バッテリー、ローモニターのいずれかを読むため、ノードはインバーターのみ、バッテリーのみ、または両方を読めます。
+* **ノードの Web パネル**（レーダーノードと同じもの）：USB コンソールに表示されるコードによるセットアップ、ログインとユーザー、Wi-Fi（ステーションとアクセスポイント）、ブローカー、ロールバック付きのオーバーザエア更新、ログ、HTTPS、そしてポート（各ポートが受信している内容を表示。未デコードのプロトコル用）と測定値のページ。7 言語対応。
 * **Voltronic / MPP Solar インバーター**（Axpert、PIP、InfiniSolar とその互換機）、RS232 2400 ボー：フレームとその CRC、および読み取り値 `QPIGS`（系統、出力、バッテリー、PV、状態ビット）、`QMOD`（モード）、`QPIWS`（名前付きの警告と故障）、`QPIRI`（定格）。組み立てられるのは読み取りコマンドだけです。設定は家への給電方法を変えてしまうからです。
 * **Pylontech バッテリー**（US2000、US3000、US5000）：コンソールの `pwr` 表（各モジュールの電圧、電流、温度、充電状態）、`bat <n>`（各セルの電圧と温度）、`info <n>`（型式、残容量と満容量、サイクル数）を、総容量と総エネルギーを持つ 1 つのスタックとして要約し、2 つのチェックを持つ RS485 フレームも扱います。書式は公開されているコンソールの記憶から書いたもので、ファームウェアによって異なる可能性があります。
-* **ゲートウェイノードのメッセージ**（`armor/solar/<ノード>/<デバイス>/state`、インバーターまたはバッテリースタックごとに 1 つ）。ARMOR-COMMON でスキーマと適合性ベクトルとともに定義され、ここでシリアライズし、スクリプトで検査します。
-* **残りの設計：** どのボード（Wi-Fi のみか PoE 付きイーサネットか）、RS232 と RS485 を安全に配線する方法（レベル変換と絶縁）、そして Studio メニューを作った順序。
-* **まだ：** ANT-BMS、ノードのファームウェア、Android のタブ。実機には何も接続されていません。
+* **ノードのメッセージ**（`armor/solar/<ノード>/<デバイス>/state`、インバーターまたはバッテリースタックごとに 1 つ）。ARMOR-COMMON でスキーマと適合性ベクトルとともに定義され、各ポートが作るものはそれに照らして検査されます。
+* **ANT-BMS バッテリー**（自作バッテリーパック用の黒い基板、7S～32S）、3.3 V UART・19200 ボー：ファームウェアの 2 種類のプロトコルの両方に対応（ノードは一方で問い合わせ、答えがなければもう一方で問い合わせ、答えたほうを使い続けます）。セル、温度、充電状態、電流、容量、MOSFET とバランサーの状態を読み取り、実機 4 機種で採取されたフレームで検証しています。読み取り専用：書き込みコマンドは負荷のかかった電池を切断しかねません。
+* **まだ：** ANT-BMS の Bluetooth 接続（ノードは、より安定なケーブルを使います）、Android のタブ、そして実機と実際の機器での動作確認。
 
 ## 📂 リポジトリの構成
 
 ```text
 ARMOR-SOLAR/
-├── core/    voltronic.hpp, pylontech.hpp, solar_json.hpp, json.hpp
-├── tests/   test_solar.cpp, emit_samples.cpp, check_samples.py
-└── docs/    PROTOCOLS.md, NODE_HARDWARE.md, SOLAR_MESSAGES.md, STUDIO_MENUS.md
+├── main/    the ESP-IDF component: app_main, solar_manager (one task per port), uart_ports, network, web_server, api_shared, mqtt_link, node_store, tls_cert
+├── core/    voltronic, pylontech, ant_bms, solar_json, json + solar_config, poller, soft_uart, netplan, auth, board_s3 (no hardware in them)
+├── panel/   the web panel: index.html, app.js, text.js (7 languages), style.css
+├── tools/   build_node.sh, pack_panel.py, panel_mock.mjs
+├── tests/   test_solar.cpp, test_node.cpp, emit_samples.cpp, emit_poller_samples.cpp, check_samples.py
+└── docs/    NODE_FIRMWARE, NODE_HARDWARE, PROTOCOLS, SOLAR_MESSAGES, STUDIO_MENUS
 ```
 
 ## 🛠️ 開発環境
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar                                # 100 checks, -Werror
-build/host/emit_samples | python tests/check_samples.py   # the messages have the fields of contract version 0
+build/host/test_solar && build/host/test_node      # 199 checks, -Werror
+build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
+tools/build_node.sh generic                       # the firmware image in the ESP-IDF container: dist/generic.bin
+node tools/panel_mock.mjs --user admin:adminpass123   # the panel without a board
 ```
+
+[ファームウェアガイド](docs/NODE_FIRMWARE.md)（ボード、ポート、初回起動、ベンチ確認リスト）と[配線メモ](docs/NODE_HARDWARE.md)を参照。
 
 ## 🔗 関連プロジェクト
 

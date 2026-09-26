@@ -7,7 +7,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 
 add_executable(test_solar test_solar.cpp)
+add_executable(test_node test_node.cpp)
 add_executable(emit_samples emit_samples.cpp)
+add_executable(emit_poller_samples emit_poller_samples.cpp)
 
 enable_testing()
 add_test(NAME solar COMMAND test_solar)
+add_test(NAME node COMMAND test_node)

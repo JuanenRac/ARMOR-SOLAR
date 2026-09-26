@@ -1,3 +1,11 @@
 build/
+dist/
 *.log
 __pycache__/
+sdkconfig
+sdkconfig.old
+managed_components/
+tools/.venv/
+certs/
+secrets/*
+!secrets/node.conf.example

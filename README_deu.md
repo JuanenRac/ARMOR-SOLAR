@@ -14,7 +14,7 @@
   <a href="README_jpn.md">🇯🇵 日本語</a>
 </p>
 
-### Überwachung von Solar-Wechselrichtern und -Batterien: die seriellen Protokolle und die Nachrichten eines Gateway-Knotens
+### Solar-Gateway-Knoten: liest Wechselrichter und Batterien über bis zu zehn serielle Ports (ESP32-S3-Firmware, sein Web-Panel und die Protokollbibliothek)
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-GPL%203.0-blue.svg" alt="GPL 3.0">
@@ -25,34 +25,43 @@
 
 ---
 
-**Ehrlichkeitsprüfung - was heute läuft:** **Reifegrad: Scaffolding.** Die Protokollbibliothek (100 Prüfungen) dekodiert Voltronic- / MPP-Solar-Wechselrichter und die Pylontech-Konsole, Zelle für Zelle und mit den Kapazitäten, aus typischen, von Hand geschriebenen Antworten. Die Nachrichten, die sie ausgibt, werden von ARMOR-COMMON validiert, von ARMOR-SERVER gelesen und in den Menüs Wechselrichter und Batterien von Studio gezeigt, alles mit erzeugten Messwerten. **Es wurde kein Wechselrichter und keine Batterie angeschlossen**, es gibt noch keine Knoten-Firmware, und ANT-BMS wird nicht dekodiert, weil sein Protokolldokument nicht im Projekt liegt.
+**Ehrlichkeitsprüfung - was heute läuft:** **Reifegrad: Scaffolding.** Die Firmware baut im ESP-IDF-5.4.2-Container, ihr Kern (die Einstellungen, der Austausch mit jeder Geräteart, die Arithmetik des emulierten UART: 254 Prüfungen) ist am Rechner mit Stellvertreter-Geräten getestet, die Nachrichten, die sie erzeugt, akzeptiert ARMOR-COMMON, und das Panel wurde in einem Browser gegen einen Stellvertreter-Knoten ausprobiert. **Sie lief nie auf einer Platine, und es wurde kein Wechselrichter und keine Batterie angeschlossen**: das WLAN, das Panel mit TLS, das Update, die Hardware- und emulierten UARTs und die Formate der Protokolle (aus öffentlichen Dokumenten und aus dem Gedächtnis geschrieben) sind unerprobt. Die ANT-BMS-Frames in den Tests wurden von anderen an deren eigenen Geräten aufgezeichnet: dieses Projekt hat selbst noch keines gelesen.
 
 ---
 
 ## 🎯 Überblick
 
+* **Die Firmware des Knotens** (ESP32-S3-WROOM-1 N16R8, nur WLAN): zehn serielle Ports, drei Hardware-UARTs und sieben emulierte (bis 19200 Baud), jeder unabhängig und jeder liest einen Wechselrichter, eine Batterie oder einen Rohmonitor, sodass ein Knoten nur Wechselrichter, nur Batterien oder eine Mischung lesen kann.
+* **Das Web-Panel des Knotens,** auch das der Radarknoten: Einrichtung mit einem Code, der auf der USB-Konsole erscheint, Anmeldung und Benutzer, WLAN (Station und Access Point), Broker, Update per Funk mit Rollback, Protokoll, HTTPS und die Seiten der Ports (mit dem, was jeder hört, für noch nicht dekodierte Protokolle) und der Messwerte, in sieben Sprachen.
 * **Voltronic- / MPP-Solar-Wechselrichter** (Axpert, PIP, InfiniSolar und Klone), RS232 mit 2400 Baud: die Rahmen und ihre CRC sowie die Messwerte `QPIGS` (Netz, Ausgang, Batterie, PV, Statusbits), `QMOD` (Modus), `QPIWS` (Warnungen und Störungen mit Namen) und `QPIRI` (Nennwerte). Nur lesende Befehle lassen sich bauen: eine Einstellung ändert, wie das Haus versorgt wird.
 * **Pylontech-Batterien** (US2000, US3000, US5000): die `pwr`-Tabelle der Konsole (Spannung, Strom, Temperaturen und Ladezustand jedes Moduls), `bat <n>` (Spannung und Temperatur jeder Zelle) und `info <n>` (Modell, Rest- und Gesamtkapazität, Zyklen), zusammengefasst als ein Stapel mit Gesamtkapazität und -energie, und der RS485-Rahmen mit seinen zwei Prüfungen. Die Formate sind aus dem Gedächtnis der öffentlichen Konsole geschrieben und können sich je nach Firmware unterscheiden.
-* **Die Nachrichten eines Gateway-Knotens** (`armor/solar/<Knoten>/<Gerät>/state`, eine je Wechselrichter oder Batteriestapel), in ARMOR-COMMON mit Schemas und Konformitätsvektoren definiert, hier serialisiert und von einem Skript geprüft.
-* **Der Entwurf des Rests:** welche Platine (nur WLAN oder Ethernet mit PoE), wie man RS232 und RS485 sicher verdrahtet (Pegelwandlung und Isolation) und in welcher Reihenfolge die Studio-Menüs gebaut wurden.
-* **Noch nicht:** ANT-BMS, die Firmware des Knotens und der Android-Tab. Nichts wurde an ein echtes Gerät angeschlossen.
+* **Die Nachrichten des Knotens** (`armor/solar/<Knoten>/<Gerät>/state`, eine je Wechselrichter oder Batteriestapel), in ARMOR-COMMON mit Schemas und Konformitätsvektoren definiert; was die Ports erzeugen, wird dagegen geprüft.
+* **ANT-BMS-Batterien** (die schwarzen Platinen selbstgebauter Akkus, 7S bis 32S), 3,3-V-UART mit 19200 Baud: beide Protokolle seiner Firmware (der Knoten fragt im einen und dann im anderen und bleibt bei dem, das antwortet), mit Zellen, Temperaturen, Ladezustand, Strom, Kapazitäten sowie den Zuständen der MOSFETs und des Balancers, geprüft an Frames, die an vier echten Modellen aufgezeichnet wurden. Nur Lesen: seine Schreibbefehle können eine Batterie unter Last trennen.
+* **Noch nicht:** die Bluetooth-Verbindung des ANT-BMS (der Knoten nutzt das Kabel, das stabilere von beiden), der Android-Tab und ein Lauf auf einer echten Platine mit echten Geräten.
 
 ## 📂 Struktur des Repositorys
 
 ```text
 ARMOR-SOLAR/
-├── core/    voltronic.hpp, pylontech.hpp, solar_json.hpp, json.hpp
-├── tests/   test_solar.cpp, emit_samples.cpp, check_samples.py
-└── docs/    PROTOCOLS.md, NODE_HARDWARE.md, SOLAR_MESSAGES.md, STUDIO_MENUS.md
+├── main/    the ESP-IDF component: app_main, solar_manager (one task per port), uart_ports, network, web_server, api_shared, mqtt_link, node_store, tls_cert
+├── core/    voltronic, pylontech, ant_bms, solar_json, json + solar_config, poller, soft_uart, netplan, auth, board_s3 (no hardware in them)
+├── panel/   the web panel: index.html, app.js, text.js (7 languages), style.css
+├── tools/   build_node.sh, pack_panel.py, panel_mock.mjs
+├── tests/   test_solar.cpp, test_node.cpp, emit_samples.cpp, emit_poller_samples.cpp, check_samples.py
+└── docs/    NODE_FIRMWARE, NODE_HARDWARE, PROTOCOLS, SOLAR_MESSAGES, STUDIO_MENUS
 ```
 
 ## 🛠️ Entwicklungsumgebung
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar                                # 100 checks, -Werror
-build/host/emit_samples | python tests/check_samples.py   # the messages have the fields of contract version 0
+build/host/test_solar && build/host/test_node      # 199 checks, -Werror
+build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
+tools/build_node.sh generic                       # the firmware image in the ESP-IDF container: dist/generic.bin
+node tools/panel_mock.mjs --user admin:adminpass123   # the panel without a board
 ```
+
+Siehe die [Firmware-Anleitung](docs/NODE_FIRMWARE.md) (die Platine, die Ports, der erste Start und die Prüfliste am Prüfstand) und die [Verdrahtungshinweise](docs/NODE_HARDWARE.md).
 
 ## 🔗 Verwandte Projekte
 

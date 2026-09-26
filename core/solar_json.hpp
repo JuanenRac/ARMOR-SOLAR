@@ -74,6 +74,7 @@ inline std::string battery_json(const std::string& node_id, const std::string& d
       if (m.full_capacity_ah >= 0) w.key("full_capacity_ah").number(m.full_capacity_ah, 2);
       if (m.cycles >= 0) w.field("cycles", m.cycles);
       if (!m.cells_v.empty()) { w.key("cells_v").begin_array(); for (double v : m.cells_v) w.number(v, 3); w.end_array(); }
+      if (!m.temperatures_c.empty()) { w.key("temperatures_c").begin_array(); for (double v : m.temperatures_c) w.number(v, 1); w.end_array(); }
     }
     w.end_object();
   }

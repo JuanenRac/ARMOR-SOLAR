@@ -34,6 +34,7 @@ struct Module {
   int cycles = -1;
   std::string model;                  // the device name from `info` (US3000C ...)
   std::vector<double> cells_v;        // the voltage of each cell, in volts, from the console's `bat` table; empty when it was not read
+  std::vector<double> temperatures_c;  // every temperature sensor of the module (a BMS that lists them); empty when the equipment does not
   std::string base_state, voltage_state, current_state, temperature_state;   // Idle, Charge, Dischg, Normal, Absent ...
 };
 

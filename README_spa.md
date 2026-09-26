@@ -14,7 +14,7 @@
   <a href="README_jpn.md">🇯🇵 日本語</a>
 </p>
 
-### Monitorización de inversores solares y baterías: los protocolos serie y los mensajes de un nodo pasarela
+### Nodo pasarela solar: lee inversores y baterías por hasta diez puertos serie (firmware para ESP32-S3, su panel web y la biblioteca de protocolos)
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-GPL%203.0-blue.svg" alt="GPL 3.0">
@@ -25,34 +25,43 @@
 
 ---
 
-**Comprobación de honestidad - qué funciona hoy:** **Madurez: scaffolding.** La biblioteca de protocolos (100 comprobaciones) decodifica los inversores Voltronic / MPP Solar y la consola de Pylontech, celda a celda y con las capacidades, a partir de respuestas típicas escritas a mano. Los mensajes que imprime los valida ARMOR-COMMON, los lee ARMOR-SERVER y los muestran los menús Inversores y Baterías de Studio, todo con lecturas generadas. **No se ha conectado ningún inversor ni batería**, aún no hay firmware del nodo y ANT-BMS no se decodifica porque su documento de protocolo no está en el proyecto.
+**Comprobación de honestidad - qué funciona hoy:** **Madurez: scaffolding.** El firmware se compila en el contenedor ESP-IDF 5.4.2, su núcleo (los ajustes, el intercambio con cada tipo de equipo, la aritmética de la UART emulada: 254 comprobaciones) está probado en un ordenador con equipos simulados, los mensajes que produce los acepta ARMOR-COMMON y el panel se probó en un navegador contra un nodo simulado. **Nunca ha funcionado en una placa y no se ha conectado ningún inversor ni batería**: el Wi-Fi, el panel con TLS, la actualización, las UART de hardware y emuladas y los formatos de los protocolos (escritos de documentos públicos y de memoria) están sin probar. Las tramas de ANT-BMS de sus pruebas las capturaron otras personas en sus propios equipos: este proyecto no ha leído ninguno.
 
 ---
 
 ## 🎯 Descripción general
 
+* **El firmware del nodo** (ESP32-S3-WROOM-1 N16R8, solo Wi-Fi): diez puertos serie, tres UART de hardware y siete emuladas (hasta 19200 baudios), cada una independiente y cada una lee un inversor, una batería o un monitor en crudo, de modo que un nodo puede leer solo inversores, solo baterías o una mezcla.
+* **El panel web del nodo,** el mismo de los nodos radar: configuración con un código que se muestra en la consola USB, acceso y usuarios, Wi-Fi (estación y punto de acceso), broker, actualización por aire con vuelta atrás, registro, HTTPS, y las páginas de los puertos (con lo que oye cada uno, para protocolos aún sin decodificar) y de las lecturas, en siete idiomas.
 * **Inversores Voltronic / MPP Solar** (Axpert, PIP, InfiniSolar y clones), RS232 a 2400 baudios: las tramas y su CRC, y las lecturas `QPIGS` (red, salida, batería, FV, bits de estado), `QMOD` (modo), `QPIWS` (avisos y averías por nombre) y `QPIRI` (valores nominales). Solo se pueden construir comandos de lectura: un ajuste cambia cómo se alimenta la casa.
 * **Baterías Pylontech** (US2000, US3000, US5000): la tabla `pwr` de la consola (tensión, corriente, temperaturas y estado de carga de cada módulo), `bat <n>` (tensión y temperatura de cada celda) e `info <n>` (modelo, capacidad restante y total, ciclos), resumidas como una pila con su capacidad y energía totales, y la trama RS485 con sus dos comprobaciones. Los formatos están escritos de memoria de la consola pública y pueden variar entre firmwares.
-* **Los mensajes de un nodo pasarela** (`armor/solar/<nodo>/<dispositivo>/state`, uno por inversor o pila de baterías), definidos en ARMOR-COMMON con esquemas y vectores de conformidad, serializados aquí y comprobados por un script.
-* **El diseño del resto:** qué placa (solo Wi-Fi o Ethernet con PoE), cómo cablear RS232 y RS485 con seguridad (conversión de niveles y aislamiento) y el orden en que se construyeron los menús de Studio.
-* **Todavía no:** ANT-BMS, el firmware del nodo y la pestaña de Android. No se ha conectado nada a un dispositivo real.
+* **Los mensajes del nodo** (`armor/solar/<nodo>/<dispositivo>/state`, uno por inversor o pila de baterías), definidos en ARMOR-COMMON con esquemas y vectores de conformidad; lo que producen los puertos se comprueba contra ellos.
+* **Baterías con ANT-BMS** (las placas negras de los packs caseros, de 7S a 32S), UART de 3,3 V a 19200 baudios: los dos protocolos de su firmware (el nodo pregunta en uno y luego en el otro y se queda con el que responde), con las celdas, temperaturas, estado de carga, corriente, capacidades y los estados de los MOSFET y del equilibrador, comprobados con tramas capturadas en cuatro modelos reales. Solo lectura: sus comandos de escritura pueden desconectar una batería en carga.
+* **Todavía no:** el enlace Bluetooth del ANT-BMS (el nodo usa el cable, el más estable de los dos), la pestaña de Android y una prueba en una placa real con equipos reales.
 
 ## 📂 Estructura del repositorio
 
 ```text
 ARMOR-SOLAR/
-├── core/    voltronic.hpp, pylontech.hpp, solar_json.hpp, json.hpp
-├── tests/   test_solar.cpp, emit_samples.cpp, check_samples.py
-└── docs/    PROTOCOLS.md, NODE_HARDWARE.md, SOLAR_MESSAGES.md, STUDIO_MENUS.md
+├── main/    the ESP-IDF component: app_main, solar_manager (one task per port), uart_ports, network, web_server, api_shared, mqtt_link, node_store, tls_cert
+├── core/    voltronic, pylontech, ant_bms, solar_json, json + solar_config, poller, soft_uart, netplan, auth, board_s3 (no hardware in them)
+├── panel/   the web panel: index.html, app.js, text.js (7 languages), style.css
+├── tools/   build_node.sh, pack_panel.py, panel_mock.mjs
+├── tests/   test_solar.cpp, test_node.cpp, emit_samples.cpp, emit_poller_samples.cpp, check_samples.py
+└── docs/    NODE_FIRMWARE, NODE_HARDWARE, PROTOCOLS, SOLAR_MESSAGES, STUDIO_MENUS
 ```
 
 ## 🛠️ Entorno de desarrollo
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar                                # 100 checks, -Werror
-build/host/emit_samples | python tests/check_samples.py   # the messages have the fields of contract version 0
+build/host/test_solar && build/host/test_node      # 199 checks, -Werror
+build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
+tools/build_node.sh generic                       # the firmware image in the ESP-IDF container: dist/generic.bin
+node tools/panel_mock.mjs --user admin:adminpass123   # the panel without a board
 ```
+
+Véase la [guía del firmware](docs/NODE_FIRMWARE.md) (la placa, los puertos, el primer arranque y la lista de pruebas en banco) y las [notas de cableado](docs/NODE_HARDWARE.md).
 
 ## 🔗 Proyectos relacionados
 

@@ -2,7 +2,8 @@
 
 A gateway node is an ESP32 that talks to inverters and batteries over their serial ports and publishes what they say to A.R.M.O.R.'s broker. It is
 the same idea as ARMOR-RADAR's field nodes, and the plan is the same firmware family: one image for every board, told apart by its MAC, with its own
-web panel, users, updates over the air, and the panel over HTTPS. Nothing of this is built yet; this is the design.
+web panel, users, updates over the air, and the panel over HTTPS. The firmware for the **Wi-Fi-only ESP32-S3 N16R8 board** is built (see `NODE_FIRMWARE.md`: its seven
+serial ports, its first start and its bench checklist) and has never run on a board; the Ethernet board is still only a design.
 
 ## One board or two kinds
 
@@ -21,7 +22,9 @@ the nodes that see the router well and the PoE one for the rest. A stack of batt
 - **Voltronic / MPP Solar inverter:** its **RS232** port (a DB9 or an RJ45, depending on the model) at 2400 baud. The USB port cannot be used: it is HID.
 - **Pylontech US2000 / US3000 / US5000:** the **console** RJ45 (RS232 levels, 115200 baud) for the `pwr` table; the other RJ45 is RS485 for the
   battery link to the inverter. Do not put the node on the RS485 bus the inverter is using unless a capture shows what is safe to share.
-- **ANT-BMS:** its UART or RS485 port; the document of its protocol is needed first.
+- **ANT-BMS:** the 4-pin JST 1.25 mm connector: **TX, RX, ground and 3.3 V VCC** (it does not start on TX, RX and ground alone). It is 3.3 V TTL, so it goes straight to the
+  pins of a port (RX of the node to TX of the BMS, TX to RX), no level converter; keep the wire short and the ground common. Its battery ground is the pack's negative:
+  if the node is powered from anything else, use an isolated UART link. The two protocols of its firmware are both read (see `PROTOCOLS.md`).
 - **Level conversion:** RS232 signals swing about ±10 V; the ESP32 pins are 3.3 V and are damaged by that. Use a MAX3232 module (3.3 V version) for RS232
   and an RS485 transceiver module (with automatic direction control) for RS485. **Never connect an RS232 line straight to a pin.**
 - **Isolation:** these devices share ground with a battery bank and, on some inverters, with the mains. Use an **isolated** RS232 or RS485 converter

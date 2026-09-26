@@ -14,7 +14,7 @@
   <a href="README_jpn.md">🇯🇵 日本語</a>
 </p>
 
-### 太阳能逆变器与电池监控：串行协议和网关节点的消息
+### 太阳能网关节点：通过最多十个串口读取逆变器和电池（ESP32-S3 固件、其网页面板和协议库）
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-GPL%203.0-blue.svg" alt="GPL 3.0">
@@ -25,34 +25,43 @@
 
 ---
 
-**诚实性检查 - 今天真正能运行的部分:** **成熟度：scaffolding。** 协议库（100 项检查）能根据手写的典型应答，逐个电芯并带容量地解码 Voltronic / MPP Solar 逆变器和 Pylontech 控制台。它输出的消息由 ARMOR-COMMON 验证，由 ARMOR-SERVER 读取，并显示在 Studio 的“逆变器”和“电池”菜单中，全部使用生成的读数。**尚未连接任何逆变器或电池**，还没有节点固件，且由于项目中没有 ANT-BMS 的协议文档，它尚未解码。
+**诚实性检查 - 今天真正能运行的部分:** **成熟度：scaffolding。** 固件能在 ESP-IDF 5.4.2 容器中构建，其核心（设置、与各类设备的交互、模拟 UART 的运算：254 项检查）已在电脑上用替身设备测试，它生成的消息被 ARMOR-COMMON 接受，网页面板已在浏览器中对着替身节点试用。**它从未在开发板上运行过，也没有连接过任何逆变器或电池**：Wi-Fi、TLS 面板、更新、硬件和模拟 UART 以及协议格式（根据公开文档和记忆编写）都未经尝试。测试中的 ANT-BMS 帧是他人在自己的设备上抓取的，本项目自己还没有读过任何一台。
 
 ---
 
 ## 🎯 概述
 
+* **节点固件**（ESP32-S3-WROOM-1 N16R8，仅 Wi-Fi）：十个串口，三个硬件 UART 和七个模拟 UART（最高 19200 波特），每个都独立，可读取逆变器、电池或原始监视，因此一个节点可以只读逆变器、只读电池或两者混合。
+* **节点的网页面板，** 与雷达节点相同：用 USB 控制台显示的代码进行设置、登录和用户、Wi-Fi（站点和接入点）、代理、带回滚的空中更新、日志、HTTPS，以及串口页面（显示每个端口收到的内容，用于尚未解码的协议）和读数页面，支持七种语言。
 * **Voltronic / MPP Solar 逆变器**（Axpert、PIP、InfiniSolar 及其克隆），RS232 2400 波特：帧及其 CRC，以及读数 `QPIGS`（电网、输出、电池、光伏、状态位）、`QMOD`（模式）、`QPIWS`（按名称列出的警告和故障）和 `QPIRI`（额定值）。只能构造读取命令：设置会改变房屋的供电方式。
 * **Pylontech 电池**（US2000、US3000、US5000）：控制台的 `pwr` 表（每个模块的电压、电流、温度和电量）、`bat <n>`（每个电芯的电压和温度）以及 `info <n>`（型号、剩余和满容量、循环次数），汇总为一个电池组及其总容量和能量，还有带两项校验的 RS485 帧。这些格式是凭对公开控制台的记忆写成的，不同固件可能不同。
-* **网关节点的消息**（`armor/solar/<节点>/<设备>/state`，每台逆变器或电池组一条），在 ARMOR-COMMON 中以模式和一致性向量定义，在此序列化并由脚本检查。
-* **其余部分的设计：** 选哪块板（仅 Wi-Fi 或带 PoE 的以太网）、如何安全接线 RS232 和 RS485（电平转换与隔离），以及 Studio 菜单的构建顺序。
-* **尚未完成：** ANT-BMS、节点固件和 Android 标签页。没有任何东西连接到真实设备。
+* **节点的消息**（`armor/solar/<节点>/<设备>/state`，每台逆变器或电池组一条），在 ARMOR-COMMON 中以模式和一致性向量定义；各端口生成的内容会对照它们检查。
+* **ANT-BMS 电池**（自制电池组上的黑色板，7S 至 32S），3.3 V UART，19200 波特：支持其固件的两种协议（节点先用一种询问，无应答再用另一种，并保持在有应答的那种），读取电芯、温度、荷电状态、电流、容量以及 MOSFET 和均衡器状态，并用在四种真实型号上抓取的帧做了验证。只读：其写入命令可能在带载时断开电池。
+* **尚未完成：** ANT-BMS 的蓝牙连接（节点使用更稳定的线缆）、Android 标签页，以及在真实开发板上用真实设备的运行。
 
 ## 📂 仓库结构
 
 ```text
 ARMOR-SOLAR/
-├── core/    voltronic.hpp, pylontech.hpp, solar_json.hpp, json.hpp
-├── tests/   test_solar.cpp, emit_samples.cpp, check_samples.py
-└── docs/    PROTOCOLS.md, NODE_HARDWARE.md, SOLAR_MESSAGES.md, STUDIO_MENUS.md
+├── main/    the ESP-IDF component: app_main, solar_manager (one task per port), uart_ports, network, web_server, api_shared, mqtt_link, node_store, tls_cert
+├── core/    voltronic, pylontech, ant_bms, solar_json, json + solar_config, poller, soft_uart, netplan, auth, board_s3 (no hardware in them)
+├── panel/   the web panel: index.html, app.js, text.js (7 languages), style.css
+├── tools/   build_node.sh, pack_panel.py, panel_mock.mjs
+├── tests/   test_solar.cpp, test_node.cpp, emit_samples.cpp, emit_poller_samples.cpp, check_samples.py
+└── docs/    NODE_FIRMWARE, NODE_HARDWARE, PROTOCOLS, SOLAR_MESSAGES, STUDIO_MENUS
 ```
 
 ## 🛠️ 开发环境
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar                                # 100 checks, -Werror
-build/host/emit_samples | python tests/check_samples.py   # the messages have the fields of contract version 0
+build/host/test_solar && build/host/test_node      # 199 checks, -Werror
+build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
+tools/build_node.sh generic                       # the firmware image in the ESP-IDF container: dist/generic.bin
+node tools/panel_mock.mjs --user admin:adminpass123   # the panel without a board
 ```
+
+参见[固件指南](docs/NODE_FIRMWARE.md)（开发板、端口、首次启动和台架检查清单）以及[接线说明](docs/NODE_HARDWARE.md)。
 
 ## 🔗 相关项目
 
