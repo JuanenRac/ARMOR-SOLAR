@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.9]
+
+- A GitHub Actions CI baseline (`.github/workflows/ci.yml`): validates the manifest, the version, CHANGELOG.md's heading, the seven README translations' structure and its own local Markdown links, then runs this project's real build/test through `tools/armor_project_tool.py build-test .` (vendored from ARMOR-COMMON, alongside `tools/armor_ci_validate.py` and `tools/_armor_readme_parity.py`, which do the manifest/docs checking).
+
 ## [0.0.8] - The base board with multiplexers, the cells in rotation, a second PV input and parallel units
 
 - **The mux profile** for the base board with eight RJ45 sockets: a 74HC4052 multiplexer in front of each of the three hardware UARTs (groups of 4, 2 and 2 ports), the pins of the groups and of the LEDs' 74HC595 in the settings and the panel, and a new setting *Ports of the node* (`profile`: `direct` as before, or `mux`). The ports of a group take turns on the line (`core/mux_group.hpp`): each gets the multiplexer, its own speed and polarity and an empty UART, and runs until its cycle is over; a silent port costs its own timeouts and nobody else's. One LED per port through the 74HC595: a pulse for a good reading, fast blinking for a failed one, dark when the port is off. **Signals arrive inverted** per port, for a TTL device wired through a MAX3232.
