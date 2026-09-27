@@ -14,10 +14,10 @@
     "MQTT"
   ],
   "deployment_target": "ESP32-S3 gateway nodes: N16R8 on Wi-Fi, or Waveshare ESP32-S3-ETH on Ethernet",
-  "maturity": "scaffolding",
+  "maturity": "functional",
   "family": "Field Nodes",
   "parent": "ARMOR-COMMON",
   "native_version": "0.0.9",
   "build": "cmake -S tests -B build/host && cmake --build build/host && ctest --test-dir build/host",
-  "notes": "The firmware builds in the ESP-IDF container and its core is tested on a computer with stand-in equipment; the messages it makes are accepted by ARMOR-COMMON. It has never run on a board and nothing has been connected to a real inverter or battery. The ANT-BMS decoder is tested with frames captured by other people on real units, not by this project."
+  "notes": "The firmware builds in the ESP-IDF container and its core, node state machine and Ethernet board layer are tested on a computer with stand-in equipment: 697 checks across three host test binaries, all passing. Both the polled and the pushed messages it makes are accepted by ARMOR-COMMON's shared contract checker. It has never run on a board and nothing has been connected to a real inverter or battery. The ANT-BMS decoder is tested with frames captured by other people on real units, not by this project."
 }
