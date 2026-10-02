@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "ecosystem": "A.R.M.O.R.",
   "name": "ARMOR-SOLAR",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "role": "Solar gateway node: the firmware that reads inverters and batteries through up to ten serial ports, its web panel and the protocol library",
   "stack": "C++17 (host-tested core); ESP-IDF 5.4 firmware for the ESP32-S3-WROOM-1 N16R8 (Wi-Fi) and the Waveshare ESP32-S3-ETH (Ethernet); JavaScript web panel",
   "technologies": [
