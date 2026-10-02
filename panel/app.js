@@ -291,8 +291,22 @@ const HARDWARE_BAUDS = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230
 const portStatus = index => S.ports.find(p => p.port === index + 1) || { state: "disabled" };
 
 function pinLabel(info) { return "GPIO " + info.gpio + (info.note ? " ⚠ " + t("pn_" + info.note) : "") + (info.on_header ? "" : " *"); }
-function pinOptions(selected, includeNone) {
-  const assignable = S.catalog.filter(p => p.use !== "reserved");
+// Every GPIO this draft config already claims (the mux groups and LEDs, or the direct ports' own rx/tx/de - whichever profile is
+// active), except the one field at `exceptPath` - so a dropdown doesn't grey out its own value.
+function claimedGpios(exceptPath) {
+  const used = new Set();
+  const add = (path, gpio) => { if (path !== exceptPath && gpio >= 0) used.add(gpio); };
+  if (S.cfg.profile === "mux") {
+    S.cfg.mux.forEach((g, i) => { const base = "mux." + i + "."; add(base + "tx", g.tx); add(base + "rx", g.rx); add(base + "s0", g.s0); add(base + "s1", g.s1); });
+    add("leds.data", S.cfg.leds.data); add("leds.clock", S.cfg.leds.clock); add("leds.latch", S.cfg.leds.latch);
+  } else {
+    S.cfg.ports.forEach((p, i) => { if (p.enabled) { const base = "ports." + i + "."; add(base + "rx", p.rx); add(base + "tx", p.tx); add(base + "de", p.de); } });
+  }
+  return used;
+}
+function pinOptions(selected, includeNone, exceptPath) {
+  const used = exceptPath !== undefined ? claimedGpios(exceptPath) : new Set();
+  const assignable = S.catalog.filter(p => p.use !== "reserved" && (p.gpio === selected || !used.has(p.gpio)));
   const list = assignable.map(p => [p.gpio, pinLabel(p)]);
   if (selected >= 0 && !assignable.some(p => p.gpio === selected)) list.unshift([selected, "GPIO " + selected]);
   return (includeNone ? [[-1, t("none")]] : []).concat(list);
@@ -356,8 +370,8 @@ const muxPortCount = () => S.cfg.mux.reduce((n, g) => n + (g.channels >= 1 && g.
 function muxGroupRows(g) {
   const base = "mux." + g + ".", cfg = S.cfg.mux[g];
   return el("div", {}, el("h3", {}, t("muxGroup", "ABC"[g])),
-    el("div", { class: "row" }, field("muxTx", base + "tx", { type: "select", number: true, options: pinOptions(cfg.tx, false) }), field("muxRx", base + "rx", { type: "select", number: true, options: pinOptions(cfg.rx, false) }),
-      field("muxS0", base + "s0", { type: "select", number: true, options: pinOptions(cfg.s0, false) }), field("muxS1", base + "s1", { type: "select", number: true, options: pinOptions(cfg.s1, true) }),
+    el("div", { class: "row" }, field("muxTx", base + "tx", { type: "select", number: true, options: pinOptions(cfg.tx, false, base + "tx") }), field("muxRx", base + "rx", { type: "select", number: true, options: pinOptions(cfg.rx, false, base + "rx") }),
+      field("muxS0", base + "s0", { type: "select", number: true, options: pinOptions(cfg.s0, false, base + "s0") }), field("muxS1", base + "s1", { type: "select", number: true, options: pinOptions(cfg.s1, true, base + "s1") }),
       field("muxChannels", base + "channels", { type: "select", number: true, rerender: true, options: [1, 2, 3, 4].map(n => [n, String(n)]) })));
 }
 
@@ -367,8 +381,8 @@ function boardCard() {
     field("profileLabel", "profile", { type: "select", rerender: true, options: [["direct", t("profileDirect")], ["mux", t("profileMux")]] }), el("p", { class: "hint" }, t("profileHint")),
     mux ? [el("p", { class: "muted" }, t("muxIntro")), [0, 1, 2].map(muxGroupRows),
       el("h3", {}, t("ledsTitle")),
-      el("div", { class: "row" }, field("ledData", "leds.data", { type: "select", number: true, options: pinOptions(S.cfg.leds.data, true) }),
-        field("ledClock", "leds.clock", { type: "select", number: true, options: pinOptions(S.cfg.leds.clock, true) }), field("ledLatch", "leds.latch", { type: "select", number: true, options: pinOptions(S.cfg.leds.latch, true) })),
+      el("div", { class: "row" }, field("ledData", "leds.data", { type: "select", number: true, options: pinOptions(S.cfg.leds.data, true, "leds.data") }),
+        field("ledClock", "leds.clock", { type: "select", number: true, options: pinOptions(S.cfg.leds.clock, true, "leds.clock") }), field("ledLatch", "leds.latch", { type: "select", number: true, options: pinOptions(S.cfg.leds.latch, true, "leds.latch") })),
       el("p", { class: "hint" }, t("ledsHint"))] : null);
 }
 
@@ -422,9 +436,9 @@ function portCard(index) {
         cfg.kind === "voltronic" && (cfg.dialect === "auto" || cfg.dialect === "pi30") ? field("parallelLabel", base + "parallel", { type: "number", min: 0, max: 10, hint: t("parallelHint") }) : null),
       cfg.kind === "voltronic" && (cfg.dialect === "auto" || cfg.dialect === "pi30") ? [field("pv2Label", base + "pv2", { type: "checkbox" }), el("p", { class: "hint" }, t("pv2Hint"))] : null,
       mux ? [field("invertLabel", base + "invert", { type: "checkbox" }), el("p", { class: "hint" }, t("invertHint"))]
-        : [el("div", { class: "row" }, field("rxPin", base + "rx", { type: "select", number: true, options: pinOptions(cfg.rx, false) }),
-          field("txPin", base + "tx", { type: "select", number: true, options: pinOptions(cfg.tx, true) }),
-          field("dePin", base + "de", { type: "select", number: true, options: pinOptions(cfg.de, true), hint: t("dePinHint") })),
+        : [el("div", { class: "row" }, field("rxPin", base + "rx", { type: "select", number: true, options: pinOptions(cfg.rx, false, base + "rx") }),
+          field("txPin", base + "tx", { type: "select", number: true, options: pinOptions(cfg.tx, true, base + "tx") }),
+          field("dePin", base + "de", { type: "select", number: true, options: pinOptions(cfg.de, true, base + "de"), hint: t("dePinHint") })),
           soft ? el("p", { class: "hint" }, t("softNote")) : null],
       st.enabled ? el("div", { class: "actions" }, psPill(st.state), el("span", { class: "muted", id: "port-live-" + index }, portLiveText(st))) : null,
       st.enabled && st.detail ? el("p", { class: "muted" }, t("portDetail") + ": " + st.detail) : null,
@@ -531,7 +545,7 @@ function updatePage() {
       el("div", { class: "actions" }, el("button", { class: "b primary", disabled: !isAdmin(), onclick: () => {
         if (!file.files[0]) return;
         uploadFirmware(file.files[0], progress, label, r => {
-          if (r.ok) { result.textContent = t("updateDone", r.version); S.rebooting = true; setTimeout(() => { const wait = async () => { const q = await api("GET", "session"); if (q.ok) location.reload(); else setTimeout(wait, 2000); }; wait(); }, 6000); }
+          if (r.ok) { result.textContent = t("updateDone", r.version); S.rebooting = true; render(); setTimeout(() => { const wait = async () => { const q = await api("GET", "session"); if (q.ok) location.reload(); else setTimeout(wait, 2000); }; wait(); }, 6000); }
           else { result.textContent = errorText(r.error); result.className = "err"; }
         });
       } }, t("upload")))),
