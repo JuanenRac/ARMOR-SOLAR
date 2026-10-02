@@ -117,6 +117,9 @@ extern "C" void app_main() {
   armor::mqtt_link::start(settings);
   armor::ble_provision::start(settings, setup);   // only when the settings say so: Bluetooth stays unused otherwise
 
+  // A periodic, unconditional restart the panel can turn on (0: never) - a board left running for weeks without anyone touching it.
+  if (settings.auto_restart_hours > 0) armor::web::restart_after(static_cast<unsigned>(settings.auto_restart_hours) * 3600u * 1000u);
+
   if (setup) xTaskCreate(setup_reminder_task, "setup-hint", 3072, nullptr, 2, nullptr);
   bool button_is_a_pin = false;
   for (const armor::config::PortConfig& port : settings.ports) if (port.enabled && (port.rx == 0 || port.tx == 0 || port.de == 0)) button_is_a_pin = true;
