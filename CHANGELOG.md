@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.4] - The node finder can tell this is a solar node
+
+- **The panel's own title now says what it is** ("A.R.M.O.R. solar" instead of a generic "A.R.M.O.R. node"). ARMOR-STUDIO's "find nodes on the network" reads this when it probes a candidate, so the Solar menu no longer lists a radar or an electrical node found on the network.
+- Built with ESP-IDF 5.5.5.
+
 ## [0.1.3] - A login that actually leaves you signed in
 
 - **The session cookie was garbage:** it was built in a function's own local variable, and the HTTP server only keeps a pointer to a header's text, not a copy of it; by the time the response was really sent, that memory had already been reused for something else. The login or the first-time set-up answered "ok", but no browser ever kept a real session - re-entering the panel always looked like a fresh sign-in. The cookie is now kept alive until the response goes out.
