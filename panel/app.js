@@ -733,7 +733,7 @@ function langPicker() {
 }
 
 function loginScreen() {
-  const form = { user: "", password: "" };
+  const form = { user: "", password: "", remember: false };
   const message = el("p", { class: "err" });
   const submit = async e => {
     e.preventDefault();
@@ -745,6 +745,7 @@ function loginScreen() {
     el("div", { class: "brand" }, el("div", { class: "brand-mark" }, "A"), el("div", {}, el("strong", {}, "A.R.M.O.R."), el("small", {}, S.session.node_id))), el("h1", {}, t("signIn")),
     el("label", { class: "field" }, el("span", {}, t("user")), el("input", { autocomplete: "username", autofocus: true, oninput: e => { form.user = e.target.value; } })),
     passwordField("password", { autocomplete: "current-password", oninput: e => { form.password = e.target.value; } }),
+    el("label", { class: "check" }, el("input", { type: "checkbox", onchange: e => { form.remember = e.target.checked; } }), t("rememberMe")),
     message, el("button", { class: "b primary", type: "submit" }, t("signIn")), langPicker()));
 }
 

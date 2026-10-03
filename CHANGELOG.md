@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.1] - Staying signed in
+
+- **"Keep me signed in on this browser"** at login: unchecked, nothing changes (30 minutes idle still signs out); checked, the session survives closing the browser and lasts 30 days of actual use. Code only in this release - there is no board of this kind to flash yet.
+
 ## [0.2.0] - Chip, flash, PSRAM and bootloader version on the Overview page
 
 - **A new "Hardware" card:** the chip and its revision, how many cores, the flash and PSRAM sizes, and the IDF version of both the running firmware and the bootloader (not the same thing - a mismatch there usually means the wrong board file was built). Read straight from the chip and the bootloader's own descriptor, not stored anywhere. Needed `spi_flash` added to the component's own dependencies; built clean with the real toolchain.

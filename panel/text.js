@@ -21,6 +21,7 @@ const L = {
   unreachable: ["The node does not answer.", "El nodo no responde.", "Der Knoten antwortet nicht.", "Le nœud ne répond pas.", "Il nodo non risponde.", "ノードが応答しません。", "节点没有响应。"],
   // ---- login and setup
   signIn: ["Sign in", "Iniciar sesión", "Anmelden", "Connexion", "Accedi", "サインイン", "登录"],
+  rememberMe: ["Keep me signed in on this browser", "Mantener la sesión iniciada en este navegador", "Angemeldet bleiben in diesem Browser", "Rester connecté sur ce navigateur", "Resta connesso su questo browser", "このブラウザでログイン状態を保持", "在此浏览器中保持登录"],
   user: ["User", "Usuario", "Benutzer", "Utilisateur", "Utente", "ユーザー", "用户名"],
   password: ["Password", "Contraseña", "Passwort", "Mot de passe", "Password", "パスワード", "密码"],
   showPassword: ["Show the password", "Mostrar la contraseña", "Passwort anzeigen", "Afficher le mot de passe", "Mostra la password", "パスワードを表示", "显示密码"],

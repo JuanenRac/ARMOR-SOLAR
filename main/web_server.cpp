@@ -221,15 +221,16 @@ bool require(httpd_req_t* r, Who& who, bool admin, bool writes) {
 // sent - which happens back in the caller, after this function has returned. The cookie is therefore written into a string the CALLER owns
 // (cookie_out), not one of this function's own locals (one was tried first: the cookie came out as a few bytes of whatever used that stack
 // slot next - the login looked to succeed but no browser ever kept a session, found for real on a radar node's own panel).
-void start_session(httpd_req_t* r, const std::string& user, auth::Role role, std::string& cookie_out) {
+void start_session(httpd_req_t* r, const std::string& user, auth::Role role, std::string& cookie_out, bool remember = false) {
   std::uint8_t bytes[24];
   random_bytes(bytes, sizeof bytes);
   const std::string token = auth::to_hex(bytes, sizeof bytes);
   {
     std::lock_guard<std::mutex> guard(g_lock);
-    g_sessions.create(token, user, role, now_ms());
+    g_sessions.create(token, user, role, now_ms(), remember);
   }
-  cookie_out = std::string(kCookie) + "=" + token + "; " + webpolicy::cookie_attributes(is_tls(r), 1800);
+  const int max_age = remember ? 30 * 24 * 3600 : 1800;
+  cookie_out = std::string(kCookie) + "=" + token + "; " + webpolicy::cookie_attributes(is_tls(r), max_age);
   httpd_resp_set_hdr(r, "Set-Cookie", cookie_out.c_str());
 }
 
@@ -322,7 +323,7 @@ esp_err_t post_login(httpd_req_t* r) {
     g_throttle.success(source);
   }
   std::string cookie;
-  start_session(r, user, role, cookie);
+  start_session(r, user, role, cookie, in.bool_or("remember", false));
   return send_ok(r);
 }
 
