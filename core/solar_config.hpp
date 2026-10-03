@@ -323,15 +323,22 @@ inline void read_settings(const json::Value& document, Settings& s, Problems& pr
     read_text(*sta, "ssid", s.sta.ssid, 32, "sta.ssid", problems);
     read_secret(*sta, "password", s.sta.password, "sta.password", problems);
     if (const json::Value* backup = sta->get("backup"); backup != nullptr) {
-      if (!backup->is_array() || backup->items.size() > kMaxBackupNetworks) bad(problems, "sta.backup", "invalid");
-      else for (std::size_t i = 0; i < backup->items.size(); ++i) {
-        const json::Value& item = backup->items[i];
-        const std::string base = "sta.backup." + std::to_string(i) + ".";
-        Network network;
-        if (!item.is_object()) { bad(problems, base + "ssid", "invalid"); continue; }
-        read_text(item, "ssid", network.ssid, 32, base + "ssid", problems);
-        read_secret(item, "password", network.password, base + "password", problems);
-        s.sta.backup.push_back(network);
+      if (!backup->is_array()) bad(problems, "sta.backup", "invalid");
+      // A "backup" the document sends replaces the stored list, never adds to it - a save after removing one in the panel must not
+      // leave the one just removed behind (found for real: deleting backup brokers and saving brought them straight back).
+      else {
+        s.sta.backup.clear();
+        // More than fit is never fatal: an older or hand-edited document with extra entries loses only the ones past the limit, not
+        // the whole node (a broker and the rest of the settings have nothing to do with how many backup networks were once saved).
+        for (std::size_t i = 0; i < backup->items.size() && i < kMaxBackupNetworks; ++i) {
+          const json::Value& item = backup->items[i];
+          const std::string base = "sta.backup." + std::to_string(i) + ".";
+          Network network;
+          if (!item.is_object()) { bad(problems, base + "ssid", "invalid"); continue; }
+          read_text(item, "ssid", network.ssid, 32, base + "ssid", problems);
+          read_secret(item, "password", network.password, base + "password", problems);
+          s.sta.backup.push_back(network);
+        }
       }
     }
   }
@@ -343,16 +350,22 @@ inline void read_settings(const json::Value& document, Settings& s, Problems& pr
     read_int(*mqtt, "heartbeat_s", s.mqtt.heartbeat_s, 2, 300, "mqtt.heartbeat_s", problems);
     read_text(*mqtt, "ntp", s.mqtt.ntp, 64, "mqtt.ntp", problems);
     if (const json::Value* backup = mqtt->get("backup"); backup != nullptr) {
-      if (!backup->is_array() || backup->items.size() > kMaxBackupBrokers) bad(problems, "mqtt.backup", "invalid");
-      else for (std::size_t i = 0; i < backup->items.size(); ++i) {
-        const json::Value& item = backup->items[i];
-        const std::string base = "mqtt.backup." + std::to_string(i) + ".";
-        Broker broker;
-        if (!item.is_object()) { bad(problems, base + "uri", "invalid"); continue; }
-        read_text(item, "uri", broker.uri, 160, base + "uri", problems);
-        read_text(item, "username", broker.username, 64, base + "username", problems);
-        read_secret(item, "password", broker.password, base + "password", problems);
-        s.mqtt.backup.push_back(broker);
+      if (!backup->is_array()) bad(problems, "mqtt.backup", "invalid");
+      // A "backup" the document sends replaces the stored list, never adds to it (see sta.backup above - the same bug, found on the
+      // broker page: removing backup brokers and saving brought them straight back).
+      else {
+        s.mqtt.backup.clear();
+        // Same as sta.backup above: more entries than fit just lose the extras, not the rest of the node's settings.
+        for (std::size_t i = 0; i < backup->items.size() && i < kMaxBackupBrokers; ++i) {
+          const json::Value& item = backup->items[i];
+          const std::string base = "mqtt.backup." + std::to_string(i) + ".";
+          Broker broker;
+          if (!item.is_object()) { bad(problems, base + "uri", "invalid"); continue; }
+          read_text(item, "uri", broker.uri, 160, base + "uri", problems);
+          read_text(item, "username", broker.username, 64, base + "username", problems);
+          read_secret(item, "password", broker.password, base + "password", problems);
+          s.mqtt.backup.push_back(broker);
+        }
       }
     }
   }

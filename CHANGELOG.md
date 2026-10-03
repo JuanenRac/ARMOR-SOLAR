@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.2] - About and Help pages; removing a backup actually removes it
+
+- **About:** the node's own identity, firmware version, author and licence.
+- **Help:** a tabbed page explaining each part of the menu in plain language, in all seven languages.
+- **Real bug (found on ARMOR-RADAR, fixed here too):** saving only ever added the document's backup Wi-Fi networks or brokers to the ones already stored, never replacing the list - so removing one and saving brought it straight back. Saving now replaces the list exactly as sent. Code only in this release - there is no board of this kind to flash yet.
+
 ## [0.2.1] - Staying signed in
 
 - **"Keep me signed in on this browser"** at login: unchecked, nothing changes (30 minutes idle still signs out); checked, the session survives closing the browser and lasts 30 days of actual use. Code only in this release - there is no board of this kind to flash yet.

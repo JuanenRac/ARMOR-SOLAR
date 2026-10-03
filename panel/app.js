@@ -202,6 +202,8 @@ const PAGES = [
   { id: "broker", icon: "⌁", label: "navBroker", group: "navNetwork" },
   { id: "users", icon: "☺", label: "navUsers", group: "navSystem" },
   { id: "update", icon: "⟳", label: "navUpdate", group: "navSystem" },
+  { id: "help", icon: "?", label: "navHelp", group: "navSystem" },
+  { id: "about", icon: "ⓘ", label: "navAbout", group: "navSystem" },
 ];
 
 const card = (title, ...kids) => el("section", { class: "card" }, title ? el("h2", {}, title) : null, ...kids);
@@ -603,6 +605,27 @@ function uploadFirmware(file, progressBar, label, done) {
   request.send(file);
 }
 
+function aboutPage() {
+  const s = S.status;
+  return el("div", { class: "grid wide" },
+    card(null,
+      el("p", { class: "eyebrow" }, "AUTONOMOUS RADAR & MULTIMODAL OBSERVATION RANGE"),
+      el("h2", {}, "A.R.M.O.R. Solar"),
+      el("p", {}, t("aboutDescription")),
+      kv([[t("nodeId"), s ? s.node_id : "—"], [t("nodeName"), s ? s.name : "—"], [t("firmware"), s ? s.version : "—"],
+        [t("author"), "JuanenRac · Electro Hobby 3D"], [t("license"), "GPL-3.0-or-later"]]),
+      el("p", { class: "muted mono" }, "github.com/JuanenRac/ARMOR-SOLAR")));
+}
+
+const HELP_TOPICS = ["overview", "ports", "readings", "network", "wifi", "broker", "users", "update"];
+let helpTopic = "overview";
+function helpPage() {
+  const paragraphs = t("help_" + helpTopic + "_text").split("\n\n");
+  return el("div", { class: "help" },
+    el("div", { class: "help-nav" }, HELP_TOPICS.map(topic => el("button", { class: topic === helpTopic ? "active" : "", onclick: () => { helpTopic = topic; render(); } }, t("navHelpTab_" + topic)))),
+    card(t("help_" + helpTopic + "_title"), ...paragraphs.map(p => el("p", {}, p))));
+}
+
 function updatePage() {
   const s = S.status;
   const progress = el("i"), label = el("p", { class: "muted" }), file = el("input", { type: "file", accept: ".bin" });
@@ -709,6 +732,8 @@ function render(full = true) {
     case "readings": content = readingsPage(); break;
     case "users": content = usersPage(); break;
     case "update": content = updatePage(); break;
+    case "help": content = helpPage(); break;
+    case "about": content = aboutPage(); break;
     default: content = overviewPage();
   }
   $app.replaceChildren(shell(content));
