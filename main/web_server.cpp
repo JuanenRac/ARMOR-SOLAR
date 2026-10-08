@@ -35,6 +35,7 @@ extern "C" {
 #include "log_buffer.hpp"
 #include "mqtt_link.hpp"
 #include "api_shared.hpp"
+#include "clock_sync.hpp"
 #include "network.hpp"
 #include "solar_manager.hpp"
 #include "node_store.hpp"
@@ -269,7 +270,8 @@ esp_err_t post_setup(httpd_req_t* r) {
   const std::string language = in.string_or("language", "");
   if (config::language_is_known(language)) s.language = language;
   const std::string wifi_ssid = in.string_or("wifi_ssid", ""), wifi_password = in.string_or("wifi_password", "");
-  if (!wifi_ssid.empty()) { s.sta.enabled = true; s.sta.ssid = wifi_ssid; s.sta.password = wifi_password; }
+  // A Wi-Fi network given here is how a node with no cable is set up on a bench: it is then the way in, whatever the board has.
+  if (!wifi_ssid.empty()) { s.uplink = config::Uplink::kWifi; s.sta.enabled = true; s.sta.ssid = wifi_ssid; s.sta.password = wifi_password; }
   if (!s.ap.enabled) {
     s.ap.enabled = true;
     s.ap.ssid = "ARMOR-SOLAR-" + netplan::upper(store::mac_tail());
@@ -585,6 +587,18 @@ esp_err_t get_log(httpd_req_t* r) {
 
 // The firmware update: the raw image as the body. The image is checked by the OTA machinery (its own hash) and by its project name
 // before the boot partition changes; the new firmware must then come up and mark itself valid, or the boot loader goes back.
+// Setting the time by hand (the browser sends its own clock), for a node with no time server. Admins only.
+esp_err_t post_time(httpd_req_t* r) {
+  Who who;
+  if (!require(r, who, true, true)) return ESP_OK;
+  json::Value in;
+  if (!read_json(r, in)) return ESP_OK;
+  const long long seconds = in.integer_or("epoch", -1, 0, 4102444800LL);
+  if (seconds < 0 || !clocksync::set_unix(seconds)) return send_error(r, 422, "invalid_time");
+  ESP_LOGI(kTag, "clock set by \"%s\"", who.user.c_str());
+  return send_ok(r);
+}
+
 esp_err_t post_ota(httpd_req_t* r) {
   Who who;
   if (!require(r, who, true, true)) return ESP_OK;
@@ -658,6 +672,7 @@ esp_err_t api_handler(httpd_req_t* r) {
     if (route == "reboot") return post_reboot(r);
     if (route == "factory-reset") return post_factory_reset(r);
     if (route == "ota") return post_ota(r);
+    if (route == "time") return post_time(r);
   } else if (method == HTTP_PUT) {
     if (route == "config") return put_config(r);
     if (route == "account") return put_account(r);

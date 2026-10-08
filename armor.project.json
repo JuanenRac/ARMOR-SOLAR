@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "ecosystem": "A.R.M.O.R.",
   "name": "ARMOR-SOLAR",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "role": "Solar gateway node: the firmware that reads inverters and batteries through up to ten serial ports, its web panel and the protocol library",
   "stack": "C++17 (host-tested core); ESP-IDF 5.4 firmware for the ESP32-S3-WROOM-1 N16R8 (Wi-Fi) and the Waveshare ESP32-S3-ETH (Ethernet); JavaScript web panel",
   "technologies": [
@@ -17,7 +17,7 @@
   "maturity": "functional",
   "family": "Field Nodes",
   "parent": "ARMOR-COMMON",
-  "native_version": "0.1.6",
+  "native_version": "0.2.3",
   "build": "cmake -S tests -B build/host && cmake --build build/host && ctest --test-dir build/host",
   "notes": "The firmware builds in the ESP-IDF container and its core, node state machine and Ethernet board layer are tested on a computer with stand-in equipment: 697 checks across three host test binaries, all passing. Both the polled and the pushed messages it makes are accepted by ARMOR-COMMON's shared contract checker. It has never run on a board and nothing has been connected to a real inverter or battery. The ANT-BMS decoder is tested with frames captured by other people on real units, not by this project."
 }
