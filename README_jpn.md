@@ -25,7 +25,7 @@
 
 ---
 
-**正直さのチェック - 今日動いているもの:** **成熟度：scaffolding。** ファームウェアは ESP-IDF 5.4.2 コンテナーでビルドでき、そのコア（設定、各種機器とのやり取り、エミュレート UART の計算：2,548 件のチェック）は代役の機器を使ってコンピューターでテスト済みで、生成するメッセージは ARMOR-COMMON に受理され、パネルは代役ノードに対してブラウザーで試しました。**ボード上で動いたことはなく、インバーターもバッテリーも接続されたことはありません**：Wi-Fi、TLS のパネル、更新、ハードウェアとエミュレートの UART、そしてプロトコルの書式（公開文書と記憶から書いたもの）は未試験です。テストにある ANT-BMS のフレームは他の人が自分の機器で採取したもので、このプロジェクト自身はまだ 1 台も読み取っていません。
+**正直さのチェック - 今日動いているもの:** **成熟度：scaffolding。** ファームウェアは ESP-IDF 5.4.2 コンテナーでビルドでき、そのコア（設定、各種機器とのやり取り、エミュレート UART の計算：2,550 件のチェック）は代役の機器を使ってコンピューターでテスト済みで、生成するメッセージは ARMOR-COMMON に受理され、パネルは代役ノードに対してブラウザーで試しました。**ボード上で動いたことはなく、インバーターもバッテリーも接続されたことはありません**：Wi-Fi、TLS のパネル、更新、ハードウェアとエミュレートの UART、そしてプロトコルの書式（公開文書と記憶から書いたもの）は未試験です。テストにある ANT-BMS のフレームは他の人が自分の機器で採取したもので、このプロジェクト自身はまだ 1 台も読み取っていません。
 
 ---
 
@@ -58,7 +58,7 @@ ARMOR-SOLAR/
 
 ```bash
 cmake -S tests -B build/host && cmake --build build/host
-build/host/test_solar && build/host/test_node && build/host/test_board_eth && build/host/test_ble && build/host/test_mux && build/host/test_parallel && build/host/test_console      # 2,548 checks, -Werror
+build/host/test_solar && build/host/test_node && build/host/test_board_eth && build/host/test_ble && build/host/test_mux && build/host/test_parallel && build/host/test_console      # 2,550 checks, -Werror
 build/host/emit_poller_samples | python tests/check_samples.py   # what the ports make is accepted by ARMOR-COMMON
 tools/build_node.sh generic                       # the firmware image for the N16R8 board in the ESP-IDF container: dist/generic-s3-wifi.bin
 tools/build_node.sh generic s3-eth               # the same firmware for the Waveshare ESP32-S3-ETH (Ethernet): dist/generic-s3-eth.bin

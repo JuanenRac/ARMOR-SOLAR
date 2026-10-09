@@ -7,7 +7,7 @@ over HTTPS) and the pages of its own: the ports and the readings.
 
 **Nothing here has run on a board, and no inverter or battery has been connected.** What has been done: the firmware builds for both boards in the ESP-IDF 5.4.2 container
 (a 1.3 MB image in a 3 MB slot), its core (settings, the exchange with each kind of equipment, the emulated UART's arithmetic) is tested on a computer with
-stand-ins for the equipment, the messages it makes are accepted by ARMOR-COMMON, and the panel was exercised in a browser against a stand-in node. The host tests are 2,548 checks.
+stand-ins for the equipment, the messages it makes are accepted by ARMOR-COMMON, and the panel was exercised in a browser against a stand-in node. The host tests are 2,550 checks.
 
 ## Configuration from a phone over Bluetooth
 
@@ -159,3 +159,5 @@ if the equipment shares its ground with a battery bank, with a common ground on 
 `web_server.cpp`, `api_shared.cpp`, `mqtt_link.cpp`, `node_store.cpp`, `tls_cert.cpp`, and for the Waveshare board `board_ethernet.cpp`, the W5500 driver); `core/` is the part with no hardware in it (`solar_config.hpp` the settings,
 `poller.hpp` the exchange with each kind of equipment, `ant_bms.hpp` the ANT-BMS's two protocols, `soft_uart.hpp`, `netplan.hpp`, `auth.hpp` and the protocol library); `panel/` the web panel (seven languages).
 `tools/panel_mock.mjs` is a stand-in node for working on the panel without a board.
+
+**Firmware slots.** The panel's *Update* page also lists the two application slots with the version each one holds and boots the other one at the next restart (`POST /api/v1/ota/switch`, an administrator only): the way back to the version that ran before an update, or forward to the one just installed. An empty slot or a firmware of another project is refused.
