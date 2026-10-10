@@ -233,7 +233,7 @@ inline Settings default_settings(std::string_view mac_tail) {
   }
   // The wiring of the base board (ESP32-S3-WROOM-1 N16R8 or the Waveshare ESP32-S3-ETH; none of these is a reserved pin on either): three UARTs and their multiplexers, and the LEDs' shift register.
   s.mux[0] = {15, 16, 17, 18, 4};
-  s.mux[1] = {1, 2, 38, 4, 4};
+  s.mux[1] = {1, 2, 38, 46, 4};
   s.mux[2] = {40, 41, 42, -1, 2};
   s.leds = {21, 39, 47};
   return s;

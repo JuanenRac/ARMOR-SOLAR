@@ -187,7 +187,7 @@ static Outcome run(MuxGroup& group, Board& board, std::uint64_t seconds, PortLed
 static void test_profile_settings() {
   const config::Settings d = config::default_settings("a1b2c3");
   CHECK(d.profile == "direct" && d.mux[0].tx == 15 && d.mux[0].rx == 16 && d.mux[0].s0 == 17 && d.mux[0].s1 == 18 && d.mux[0].channels == 4);
-  CHECK(d.mux[1].tx == 1 && d.mux[1].rx == 2 && d.mux[1].s0 == 38 && d.mux[1].s1 == 4 && d.mux[1].channels == 4);
+  CHECK(d.mux[1].tx == 1 && d.mux[1].rx == 2 && d.mux[1].s0 == 38 && d.mux[1].s1 == 46 && d.mux[1].channels == 4);
   CHECK(d.mux[2].tx == 40 && d.mux[2].rx == 41 && d.mux[2].s0 == 42 && d.mux[2].s1 == -1 && d.mux[2].channels == 2);
   CHECK(d.leds.data == 21 && d.leds.clock == 39 && d.leds.latch == 47 && d.leds.any());
   CHECK(config::mux_port_count(d.mux) == 10);   // 4 + 4 + 2: ports 1 to 8 (batteries) and 9 and 10 (inverters)

@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.8] - The second select line of group B moves to GPIO 46
+
+- **The base board's group B takes GPIO 46 by default** (0.2.7 said GPIO 4, which is a pin of the microSD socket of the Waveshare ESP32-S3-ETH and does not reach its header, so a board with both footprints could not wire it). GPIO 46 is on the header of both boards and reads low at start, so with a 100 kohm to ground the multiplexer sits on its first channel until the firmware takes over. The documentation says so, and the header of the Ethernet board is no longer described as having the microSD pins.
+
 ## [0.2.7] - The base board with ten ports
 
 - **The mux profile serves ten ports** in groups of 4, 4 and 2 (batteries 1 to 8 and inverters 9 and 10), the shape of version 1.0 of the base board: group B gets its second select line (GPIO 4 by default; GPIO 37, which that version of the board wires, belongs to the octal PSRAM of both boards and is refused), so its four ports are reachable. The ports of a group were already limited only by its channels; what changed is the defaults, the number of ports the settings allow in this profile and the words of the panel.
