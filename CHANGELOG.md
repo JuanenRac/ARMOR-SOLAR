@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [0.2.5] - A login over HTTP after one over HTTPS
+## [0.2.5] - More from batteries and inverters, no silence without a clock, and a login over HTTP after one over HTTPS
 
 - **More of what the equipment says now reaches the message.** A battery stack carries its own power reading, the status codes of the MOSFETs and whether a protection has switched one off (ANT-BMS), and the number of cells being balanced (Pylontech, when its console tells); an inverter carries its DC bus voltage. They are left out when the equipment does not say, never made up.
 - **A node without a clock no longer falls silent.** It used to drop everything it read until a time server answered, so a node on a network without internet, or one that restarted after a power cut with the provider down, said nothing at all. It now publishes with the time since it started, and ARMOR-SERVER stamps such a message with the moment it receives it; as soon as the clock is set it sends real dates again.
