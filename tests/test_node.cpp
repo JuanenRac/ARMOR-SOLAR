@@ -931,7 +931,46 @@ static void test_ant_settings_reader() {
   CHECK(wrong.reader.done() && wrong.reader.values().empty() && wrong.reader.missing() == 56);
 }
 
+// A BMS with many temperature sensors: the message lists at most eight (the server refuses a longer list), and the mean still counts every sensor.
+static void test_ant_temperature_cap() {
+  armor::solar::ant::Reading reading;
+  const std::vector<int> temperatures = {20, 21, 22, 23, 24, 25, 26, 27, 28, 29};   // ten: eight sensors, the MOSFETs and the balancer
+  armor::solar::ant::detail::finish(reading, temperatures, 0.0, 50, 10.0, 100.0);
+  CHECK(reading.module.temperatures_c.size() == armor::solar::ant::kMaxTemperatures);
+  CHECK(reading.module.temperatures_c.front() == 20 && reading.module.temperatures_c.back() == 27);
+  CHECK(reading.module.temperature_low_c == 20 && reading.module.temperature_high_c == 29);   // the extremes still see all ten
+  CHECK(reading.module.temperature_c > 24.4 && reading.module.temperature_c < 24.6);          // mean of the ten
+}
+
+// What a battery management system adds to the message: its own power, the status of its MOSFETs, a protection, the cells being balanced; and the bus of an inverter.
+static void test_bms_fields_in_messages() {
+  armor::solar::ant::Reading reading;
+  CHECK(armor::solar::ant::decode_old(kOld8S.data(), kOld8S.size(), reading));
+  const std::string ant_message = armor::solar::battery_json("solar-1", "ant-1", 1000, {reading.module});
+  CHECK(ant_message.find("\"power_w\":") != std::string::npos);
+  CHECK(ant_message.find("\"charge_mos\":" + std::to_string(reading.charge_mos)) != std::string::npos);
+  CHECK(ant_message.find("\"discharge_mos\":" + std::to_string(reading.discharge_mos)) != std::string::npos);
+  CHECK(ant_message.find("\"protecting\":") != std::string::npos);
+  CHECK(ant_message.find("\"balancing\"") == std::string::npos);   // an ANT-BMS does not say how many cells are being balanced
+  armor::solar::pylontech::Module a, b;
+  a.number = 1; a.present = true; a.balancing = 2;
+  b.number = 2; b.present = true; b.balancing = 1;
+  const armor::solar::pylontech::Stack stack = armor::solar::pylontech::summarise({a, b});
+  CHECK(stack.balancing == 3 && !stack.has_power && stack.charge_mos < 0 && !stack.protecting);
+  const std::string pylon_message = armor::solar::battery_json("solar-1", "us3000-1", 1000, {a, b});
+  CHECK(pylon_message.find("\"balancing\":3") != std::string::npos);
+  CHECK(pylon_message.find("charge_mos") == std::string::npos && pylon_message.find("power_w") == std::string::npos);   // not said, not made up
+  armor::solar::voltronic::Status status;
+  status.bus_v = 381.5;
+  const std::string inverter_message = armor::solar::inverter_json("solar-1", "axpert-1", 1000, 'L', status, {});
+  CHECK(inverter_message.find("\"bus_v\":381.5") != std::string::npos);
+  status.bus_v = 0;
+  CHECK(armor::solar::inverter_json("solar-1", "axpert-1", 1000, 'L', status, {}).find("bus_v") == std::string::npos);
+}
+
 int main() {
+  test_bms_fields_in_messages();
+  test_ant_temperature_cap();
   test_defaults_and_pins();
   test_ports();
   test_ten_ports();

@@ -45,6 +45,7 @@ inline std::string inverter_json(const std::string& node_id, const std::string& 
   w.key("grid_v").number(s.grid_v, 1).key("grid_hz").number(s.grid_hz, 1).key("out_v").number(s.out_v, 1).key("out_hz").number(s.out_hz, 1);
   w.key("out_va").number(s.out_va, 0).key("out_w").number(s.out_w, 0).key("load_percent").number(s.load_percent, 0);
   w.key("battery_v").number(s.battery_v, 2).key("battery_a").number(s.battery_a(), 1).key("battery_percent").number(s.battery_percent, 0);
+  if (s.bus_v > 0) w.key("bus_v").number(s.bus_v, 1);   // when the dialect says it
   w.key("pv_v").number(s.pv_v, 1).key("pv_a").number(s.pv_a, 1).key("pv_w").number(pv2 ? s.pv_w + extras->pv2.power_w : s.pv_w, 0).key("heatsink_c").number(s.heatsink_c, 0);
   w.field("ac_charging", s.ac_charging).field("pv_charging", s.scc_charging).field("load_on", s.load_on);
   w.key("warnings").begin_array();
@@ -85,6 +86,10 @@ inline std::string battery_json(const std::string& node_id, const std::string& d
     if (s.energy_kwh >= 0) w.key("energy_kwh").number(s.energy_kwh, 2);
     if (s.cycles >= 0) w.field("cycles", s.cycles);
     if (s.health_percent >= 0) w.field("health_percent", s.health_percent);
+    if (s.has_power) w.key("power_w").number(s.power_w, 1);
+    if (s.balancing >= 0) w.field("balancing", s.balancing);
+    if (s.charge_mos >= 0) { w.field("protecting", s.protecting); w.field("charge_mos", s.charge_mos); }
+    if (s.discharge_mos >= 0) w.field("discharge_mos", s.discharge_mos);
   }
   w.key("stack").begin_array();
   for (const pylontech::Module& m : modules) {

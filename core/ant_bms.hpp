@@ -27,6 +27,7 @@ enum class Protocol { kOld, kNew };
 constexpr std::size_t kOldFrameSize = 140;
 constexpr std::size_t kNewMaxFrameSize = 200;   // 6 + a length byte (at most 190 in practice) + 4
 constexpr int kMaxCells = 32;
+constexpr std::size_t kMaxTemperatures = 8;   // what one module of the message may list
 
 // CRC-16 (Modbus: polynomial 0xA001, start 0xFFFF).
 inline std::uint16_t crc16(const std::uint8_t* data, std::size_t length) {
@@ -90,14 +91,16 @@ inline void finish(Reading& r, const std::vector<int>& temperatures, double curr
   m.current_a = current_a;
   bool have_temperature = false;
   double sum = 0;
+  std::size_t counted = 0;
   for (int t : temperatures) {
     if (!temperature_ok(t)) continue;
-    m.temperatures_c.push_back(t);
+    if (m.temperatures_c.size() < kMaxTemperatures) m.temperatures_c.push_back(t);   // the message carries at most eight (the server refuses a longer list)
     sum += t;
+    ++counted;
     if (!have_temperature) { m.temperature_low_c = m.temperature_high_c = t; have_temperature = true; }
     else { if (t < m.temperature_low_c) m.temperature_low_c = t; if (t > m.temperature_high_c) m.temperature_high_c = t; }
   }
-  if (have_temperature) m.temperature_c = sum / static_cast<double>(m.temperatures_c.size());
+  if (have_temperature) m.temperature_c = sum / static_cast<double>(counted);
   if (!m.cells_v.empty()) {
     m.cell_low_v = m.cell_high_v = m.cells_v[0];
     for (double v : m.cells_v) { if (v < m.cell_low_v) m.cell_low_v = v; if (v > m.cell_high_v) m.cell_high_v = v; }
@@ -109,6 +112,9 @@ inline void finish(Reading& r, const std::vector<int>& temperatures, double curr
   if (nominal_ah > 0 && r.cycle_ah >= 0) m.cycles = static_cast<int>(r.cycle_ah / nominal_ah + 0.5);   // full-cycle equivalents, an estimate
   m.model = "ANT-BMS";
   r.protecting = charge_protects(r.charge_mos) || discharge_protects(r.discharge_mos);
+  m.has_power = true; m.power_w = r.power_w;
+  m.charge_mos = r.charge_mos; m.discharge_mos = r.discharge_mos;
+  m.protecting = r.protecting;
   m.voltage_state = r.protecting ? "Protection" : "Normal";
   m.current_state = "Normal";
   m.temperature_state = "Normal";

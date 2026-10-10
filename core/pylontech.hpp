@@ -43,6 +43,11 @@ struct Module {
   std::vector<double> temperatures_c;  // every temperature sensor of the module (a BMS that lists them); empty when the equipment does not
   std::string base_state, voltage_state, current_state, temperature_state;   // Idle, Charge, Dischg, Normal, Absent ...
   std::string cell_voltage_state, cell_temperature_state, mosfet_temperature_state, system_alarm_state;   // B.V.St, B.T.St, M.T.St, SysAlarm.St when the firmware prints them
+  int balancing = -1;                 // how many cells are being balanced (the console's `bat` table, when its firmware tells); -1 when unknown
+  bool has_power = false;             // a battery management system that measures its own power
+  double power_w = 0;                 // that power: negative while discharging
+  int charge_mos = -1, discharge_mos = -1;   // the status codes of the MOSFETs of a battery management system (ANT-BMS); -1 when the equipment does not say
+  bool protecting = false;            // a protection has switched a MOSFET off
 };
 
 namespace detail {
@@ -224,6 +229,10 @@ struct Stack {
   std::string model;                  // the first module's
   std::string state;                  // "charging", "discharging", "idle"
   bool alarm = false;                 // any state column that is not Normal, Idle, Charge or Dischg
+  bool has_power = false; double power_w = 0;   // the sum of the power the modules measured themselves
+  int balancing = -1;                 // cells being balanced in all (-1 when no module says)
+  bool protecting = false;            // any module is protecting
+  int charge_mos = -1, discharge_mos = -1;   // the first module's that says
 };
 
 inline Stack summarise(const std::vector<Module>& modules) {
@@ -255,6 +264,11 @@ inline Stack summarise(const std::vector<Module>& modules) {
     if (m.cycles > s.cycles) s.cycles = m.cycles;
     if (m.health_percent >= 0) { health += m.health_percent; ++with_health; }
     if (s.model.empty()) s.model = m.model;
+    if (m.has_power) { s.has_power = true; s.power_w += m.power_w; }
+    if (m.balancing >= 0) s.balancing = (s.balancing < 0 ? 0 : s.balancing) + m.balancing;
+    if (m.protecting) s.protecting = true;
+    if (s.charge_mos < 0) s.charge_mos = m.charge_mos;
+    if (s.discharge_mos < 0) s.discharge_mos = m.discharge_mos;
     for (const std::string* state : {&m.voltage_state, &m.current_state, &m.temperature_state, &m.cell_voltage_state, &m.cell_temperature_state, &m.mosfet_temperature_state, &m.system_alarm_state})
       if (*state != "Normal" && !state->empty()) s.alarm = true;
   }

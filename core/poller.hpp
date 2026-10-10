@@ -396,6 +396,7 @@ class Poller {
       const CellsCache& cache = cells_cache_[static_cast<std::size_t>(number)];
       pylontech::attach_cells(modules_, number, cache.cells);
       if (cache.remaining_ah >= 0) modules_[module_at_].capacity_ah = cache.remaining_ah;
+      modules_[module_at_].balancing = cache.balancing;
       after_bat(now_ms);
       return;
     }
@@ -444,12 +445,15 @@ class Poller {
     } else if (step_ == Step::kBat) {
       std::vector<double> cells;
       double remaining_ah = -1;
-      if (pylontech::parse_bat(buffer_, cells, &remaining_ah) > 0) {
+      int balancing = 0;
+      if (pylontech::parse_bat(buffer_, cells, &remaining_ah, &balancing) > 0) {
         pylontech::attach_cells(modules_, modules_[module_at_].number, cells);
         if (remaining_ah >= 0) modules_[module_at_].capacity_ah = remaining_ah;
+        modules_[module_at_].balancing = balancing;
         CellsCache& cache = cells_cache_[static_cast<std::size_t>(modules_[module_at_].number)];
         cache.cells = cells;
         cache.remaining_ah = remaining_ah;
+        cache.balancing = balancing;
         ++stats_.replies_ok;
       }
       after_bat(now_ms);
@@ -530,6 +534,7 @@ class Poller {
       const CellsCache& cache = cells_cache_[static_cast<std::size_t>(number)];
       if (!cache.cells.empty()) pylontech::attach_cells(modules_, number, cache.cells);
       if (cache.remaining_ah >= 0) modules_[module_at_].capacity_ah = cache.remaining_ah;
+      modules_[module_at_].balancing = cache.balancing;
       after_bat(now_ms);
       return;
     }
@@ -562,7 +567,7 @@ class Poller {
   int cells_per_cycle_ = 0;
   int bat_cursor_ = 1;                // the module whose cells come next in the rotation
   std::uint32_t cells_wanted_ = 0;    // bit n: this cycle asks the cells of module n
-  struct CellsCache { std::vector<double> cells; double remaining_ah = -1; };
+  struct CellsCache { std::vector<double> cells; double remaining_ah = -1; int balancing = -1; };
   std::array<CellsCache, 17> cells_cache_;   // by module number: the cells and remaining charge of the module's last turn
   Step step_ = Step::kIdle;
   std::uint64_t deadline_ms_ = 0, next_cycle_ms_ = 0, cycle_started_ms_ = 0, last_rx_ms_ = 0, last_reading_ms_ = 0;
