@@ -62,6 +62,7 @@ struct Bench {
         std::string command(out.begin(), out.end());
         if (command.size() > 3 && command[0] == 'Q') command = command.substr(0, command.size() - 3);
         else if (command.size() > 8 && command[0] == '^') command = "^" + command.substr(5, command.size() - 8);
+        if (!command.empty() && command[0] == '\r') command.erase(0, 1);   // a bare Enter that wakes a console goes before the first `pwr`
         asked.push_back(command);
         const auto answer = answers.find(command);
         if (answer != answers.end()) in_flight.push_back({now + 40, answer->second});

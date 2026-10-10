@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.6] - A Pylontech battery that sleeps is woken, and the node can update itself from GitHub
+
+- **The node can look for a newer firmware on GitHub and install it** (*Firmware and log -> Check GitHub for a new version*), next to - never instead of - the upload of a file: it asks the repository's latest release, offers it only when it is newer and the release carries the SHA-256 of the image, downloads **the image built for this board** (`armor_solar-<board>.bin`) straight into the other firmware slot with a progress bar, and installs it only when the hash matches; then it restarts into it. Administrators only; it needs the node to reach the Internet. The code is the one the radar node already had, now shared by every node (`main/github_update.*`, `core/semver.hpp`, `core/release_assets.hpp` in ARMOR-COMMON's firmware base).
+- **The panel and its tests:** the *Firmware and log* page has the card in the seven languages, the stand-in node (`tools/panel_mock.mjs`) answers the three routes (`GET /api/v1/ota/check`, `POST /api/v1/ota/install`, `GET /api/v1/ota/progress`), and the host tests check the comparison of versions and, for a release with and without an image per board, that a board never picks an image that is not its own.
+- **A Pylontech console that has been quiet is woken before the first question.** At the start, and after a silence, the poller sends a bare Enter before `pwr`: a console that has been idle may swallow its first command, which looked like a battery that does not answer. The host tests cover it (`test_pylontech_wake`) and every poller sample strips that leading Enter.
+- **A node can subscribe to the broker** (`mqtt_link::subscribe`, shared with the other nodes) and the panel's stylesheet gained two small rules; nothing changes for the solar node itself.
+
 ## [0.2.5] - More from batteries and inverters, no silence without a clock, and a login over HTTP after one over HTTPS
 
 - **More of what the equipment says now reaches the message.** A battery stack carries its own power reading, the status codes of the MOSFETs and whether a protection has switched one off (ANT-BMS), and the number of cells being balanced (Pylontech, when its console tells); an inverter carries its DC bus voltage. They are left out when the equipment does not say, never made up.

@@ -31,6 +31,7 @@ static void run(Poller& poller, std::map<std::string, std::vector<std::uint8_t>>
     if (!out.empty()) {
       std::string command(out.begin(), out.end());
       if (command.size() > 3 && command[0] == 'Q') command = command.substr(0, command.size() - 3);
+      if (!command.empty() && command[0] == '\r') command.erase(0, 1);   // a bare Enter that wakes a console goes before the first `pwr`
       const auto answer = answers.find(command);
       if (answer != answers.end()) in_flight.push_back({now + 40, answer->second});
     }

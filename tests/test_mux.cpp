@@ -74,6 +74,7 @@ static std::string command_of(const std::vector<std::uint8_t>& out) {
   std::string command = as_text(out);
   if (command.size() > 3 && command[0] == 'Q') return command.substr(0, command.size() - 3);
   if (command.size() > 8 && command[0] == '^') return "^" + command.substr(5, command.size() - 8);
+  if (!command.empty() && command.front() == '\r') command.erase(0, 1);   // the bare Enter that wakes a console goes before its first `pwr`
   if (!command.empty() && command.back() == '\r') command.pop_back();
   return command;
 }

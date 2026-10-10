@@ -243,6 +243,7 @@ struct Bench {
         std::string command = as_text(out);
         if (command.size() > 3 && command[0] == 'Q') command = command.substr(0, command.size() - 3);   // the CRC and CR are not part of the name
         else if (command.size() > 8 && command[0] == '^') command = "^" + command.substr(5, command.size() - 8);   // "^P005GS" + CRC + CR is "^GS"
+        if (!command.empty() && command[0] == '\r') command.erase(0, 1);   // a bare Enter that wakes a console goes before the first `pwr`
         asked.push_back(command);
         const auto answer = answers.find(command);
         if (answer != answers.end()) in_flight.push_back({now + latency_ms, answer->second});
@@ -968,7 +969,28 @@ static void test_bms_fields_in_messages() {
   CHECK(armor::solar::inverter_json("solar-1", "axpert-1", 1000, 'L', status, {}).find("bus_v") == std::string::npos);
 }
 
+// The first `pwr` of a Pylontech port, and the first after a silence, is preceded by a bare Enter that wakes the console; the ones in between are not.
+static void test_pylontech_wake() {
+  using namespace armor::solar;
+  Poller poller(config::Kind::kPylontech, "solar-1", "us3000-1", 10, 4);
+  const auto text = [](const std::vector<std::uint8_t>& bytes) { return std::string(bytes.begin(), bytes.end()); };
+  CHECK(text(poller.next_tx(0)) == "\rpwr\r");                       // the first one wakes the console
+  const std::string table = "Power Volt Curr Tempr Tlow Thigh Vlow Vhigh Base.St Volt.St Curr.St Temp.St Coulomb Time B.V.St B.T.St\r\n"
+                            "1 49872 -1280 22000 20000 25000 3330 3348 Dischg Normal Normal Normal 88% 2018-11-14 15:12:04 Normal Normal\r\n$$\r\npylon>";
+  poller.on_rx(reinterpret_cast<const std::uint8_t*>(table.data()), table.size(), 100);
+  bool woke_again = false, asked_again = false;
+  for (std::uint64_t t = 150; t < 60000; t += 50) {                  // nobody answers the extras; the next cycle comes after the poll time
+    std::string topic, payload;
+    poller.take_message(1700000000000ULL + t, topic, payload);         // a reading that is not taken blocks the next cycle
+    const std::string out = text(poller.next_tx(t));
+    if (out == "pwr\r") { asked_again = true; break; }
+    if (!out.empty() && out[0] == '\r') woke_again = true;
+  }
+  CHECK(asked_again && !woke_again);                                  // after an answer, no more bare Enter
+}
+
 int main() {
+  test_pylontech_wake();
   test_bms_fields_in_messages();
   test_ant_temperature_cap();
   test_defaults_and_pins();

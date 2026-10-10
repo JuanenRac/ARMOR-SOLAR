@@ -33,8 +33,8 @@ const config = {
   v: 1, node: { id: "solar-a1b2c3", name: "Solar house", hostname: "" },
   uplink: wired ? "ethernet" : "wifi", ip: { dhcp: true, address: "", netmask: "255.255.255.0", gateway: "", dns1: "", dns2: "" },
   ap: { enabled: true, ssid: "ARMOR-SOLAR-A1B2C3", security: "wpa2", password_set: true, channel: 0, hidden: false, max_clients: 8, tx_power_dbm: 15, bandwidth_mhz: 20, country: "ES" },
-  sta: { enabled: true, ssid: "HomeRouter", password_set: true },
-  mqtt: { enabled: true, uri: "mqtt://192.168.0.180:18883", username: "solar-node-solar-a1b2c3", password_set: true, heartbeat_s: 10, ntp: "pool.ntp.org" },
+  sta: { enabled: true, ssid: "HomeRouter", password_set: true, backup: [] },
+  mqtt: { enabled: true, uri: "mqtt://192.168.0.180:18883", username: "solar-node-solar-a1b2c3", password_set: true, heartbeat_s: 10, ntp: "pool.ntp.org", backup: [] },
   ports: [
     { enabled: true, kind: "voltronic", name: "axpert-1", baud: 0, rx: 16, tx: 15, de: -1, poll_s: 0, modules: 0, dialect: "auto" },
     { enabled: true, kind: "pylontech", name: "us3000-1", baud: 0, rx: 18, tx: 17, de: 8, poll_s: 0, modules: 0, dialect: "auto" },
@@ -50,6 +50,8 @@ const config = {
   profile: process.argv.includes("--mux") ? "mux" : "direct",
   mux: [{ tx: 15, rx: 16, s0: 17, s1: 18, channels: 4 }, { tx: 1, rx: 2, s0: 38, s1: -1, channels: 2 }, { tx: 40, rx: 41, s0: 42, s1: -1, channels: 2 }],
   leds: { data: 21, clock: 39, latch: 47 },
+  time: { ntp_enabled: true, ntp: "pool.ntp.org", zone: "CET-1CEST,M3.5.0,M10.5.0/3" },
+  system: { auto_restart_hours: 0 },
   web: { mode: "both" },
   ble: { mode: "setup" },
   ui: { language: "en" },
@@ -230,6 +232,9 @@ const server = createServer(async (request, response) => {
     return json(response, 200, { ok: true, restart_required: false });
   }
   if (method === "GET" && route === "log") return json(response, 200, { next: logText.length, text: logText.slice(Number(url.searchParams.get("from") ?? 0)) });
+  if (method === "GET" && route === "ota/check") { if (!needAdmin()) return; return json(response, 200, { ok: true, current_version: "0.2.3", latest_version: "9.9.9", update_available: true }); }
+  if (method === "POST" && route === "ota/install") { if (!needAdmin()) return; return json(response, 200, { ok: true, started: true }); }
+  if (method === "GET" && route === "ota/progress") { if (!needAdmin()) return; return json(response, 200, { state: "downloading", got: 300000, total: 1200000 }); }
   if (method === "POST" && route === "ota/switch") { if (!needAdmin()) return; rebootAt = Date.now(); return json(response, 200, { ok: true, restart_required: true, slot: "ota_1", version: "0.0.0" }); }
   if (method === "POST" && route === "reboot") { if (!needAdmin()) return; rebootAt = Date.now(); return json(response, 200, { ok: true, restart_required: false }); }
   if (method === "POST" && route === "factory-reset") { if (!needAdmin()) return; if (body.confirm !== "RESET") return json(response, 422, { error: "confirm_required" }); users.clear(); return json(response, 200, { ok: true, restart_required: true }); }

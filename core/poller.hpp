@@ -225,7 +225,8 @@ class Poller {
       step_ = Step::kPwr;
       modules_.clear();
       module_at_ = 0;
-      send("pwr\r", now_ms, kConsoleTableTimeoutMs);
+      // A console that has been quiet for a while may swallow its first command: at the start and after a silence a bare Enter goes first, to wake it up.
+      send(wake_ ? "\rpwr\r" : "pwr\r", now_ms, kConsoleTableTimeoutMs);
     }
   }
 
@@ -433,6 +434,7 @@ class Poller {
     for (std::size_t i = 0; i < length; ++i) if (buffer_.size() < 8192) buffer_ += static_cast<char>(data[i]);
     if (!console_done(buffer_)) return;
     if (step_ == Step::kPwr) {
+      wake_ = false;
       std::vector<pylontech::Module> found;
       pylontech::parse_pwr(buffer_, found);
       if (found.empty()) { fail("format", now_ms); return; }
@@ -543,6 +545,7 @@ class Poller {
     if (step_ == Step::kInfo) { ask_stat(now_ms); return; }
     if (step_ == Step::kStat) { end_extras(now_ms); return; }
     stats_.last_error = "timeout";
+    if (kind_ == config::Kind::kPylontech) wake_ = true;   // the console did not answer: the next try starts with a bare Enter
     if (kind_ == config::Kind::kVoltronic && auto_) {
       if (known_ && ++misses_ >= 3) { known_ = false; misses_ = 0; }
       if (!known_) dialect_ = dialect_ == Dialect::kPi18 ? Dialect::kPi30 : Dialect::kPi18;   // look for the other one at the next try
@@ -597,6 +600,7 @@ class Poller {
   bool ant_known_ = false, ant_seen_ = false;
   int ant_misses_ = 0;
   bool ready_ = false;
+  bool wake_ = true;                  // the next `pwr` is preceded by a bare Enter (at the start and after a silence)
   std::string last_payload_;
   PortStats stats_;
   RawLog raw_;
