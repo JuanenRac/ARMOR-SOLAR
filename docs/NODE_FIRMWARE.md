@@ -96,15 +96,15 @@ A Pylontech port's card in the panel has a small tool for an administrator: it s
 
 ## The base board with multiplexers (the *mux* profile)
 
-The three hardware UARTs are all a node has for the Pylontech console (115200 baud is beyond the emulated ports), so the base board with **eight RJ45 sockets** puts a **74HC4052** multiplexer in front of each UART and a **MAX3232** on every pair of ports. The setting *Ports of the node* (Ports page, `profile` in the settings) chooses between the two ways of using the pins: **direct** (the default: ten ports, each with its own pins, as before) and **mux** (the eight ports of that board).
+The three hardware UARTs are all a node has for the Pylontech console (115200 baud is beyond the emulated ports), so the base board with **ten RJ45 sockets** (eight for batteries, two for inverters) puts a **74HC4052** multiplexer in front of each UART and a **MAX3232** on every pair of ports. The setting *Ports of the node* (Ports page, `profile` in the settings) chooses between the two ways of using the pins: **direct** (the default: ten ports, each with its own pins, as before) and **mux** (the eight ports of that board).
 
 | Group | UART | TX | RX | S0 | S1 | Ports |
 | --- | --- | --- | --- | --- | --- | --- |
 | A | UART1 | GPIO 15 | GPIO 16 | GPIO 17 | GPIO 18 | 1 to 4 |
-| B | UART2 | GPIO 1 | GPIO 2 | GPIO 38 | none (ground) | 5 and 6 |
-| C | UART0 | GPIO 40 | GPIO 41 | GPIO 42 | none (ground) | 7 and 8 |
+| B | UART2 | GPIO 1 | GPIO 2 | GPIO 38 | GPIO 4 | 5 to 8 |
+| C | UART0 | GPIO 40 | GPIO 41 | GPIO 42 | none (ground) | 9 and 10 |
 
-These are the defaults and all of them can be changed in the panel (the pins are checked as always: none may be reserved or shared). The LEDs' shift register (a **74HC595**, one LED per port) takes GPIO 21 (data), 39 (clock) and 47 (latch); with the three pins on *none* the node has no LEDs. The pins are free on both boards.
+The first four ports are batteries (Pylontech at 115200 baud, or an ANT-BMS at 19200 on the TTL connector of the same port), the last two are inverters. Group B's second select line is GPIO 4 here because GPIO 37, which version 1.0 of the board wires, belongs to the octal PSRAM of both boards and the node refuses it (see [NODE_HARDWARE.md](NODE_HARDWARE.md)). These are the defaults and all of them can be changed in the panel (the pins are checked as always: none may be reserved or shared). The LEDs' shift register (a **74HC595**, one LED per port) takes GPIO 21 (data), 39 (clock) and 47 (latch); with the three pins on *none* the node has no LEDs. The pins are free on both boards.
 
 **Who has the line.** The ports of a group take turns, one at a time (`core/mux_group.hpp`): a port whose cycle is due gets the line, the multiplexer is pointed at it, the UART is given **that port's speed and polarity** (a group may mix a Pylontech console at 115200 and an inverter at 2400) and emptied of whatever the port before left, and the port's exchange runs until its cycle is over; then the next port in order. A port that is not due costs no time; a silent one costs its own timeouts and nobody else's; a *raw* port only listens for a second and a half every six seconds. The three groups run at the same time. A cycle that lasts more than 90 seconds is cut. The reading of an ANT-BMS's settings, asked in the panel, is done between two turns.
 

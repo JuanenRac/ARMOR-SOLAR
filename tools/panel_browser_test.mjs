@@ -63,7 +63,7 @@ try {
   check("the board card is shown with the mux profile chosen", body.includes("Base board with multiplexers") && body.includes("Group A") && body.includes("Group B") && body.includes("Group C") && body.includes("LEDs of the ports"));
   const cards = await ev("[...document.querySelectorAll('section.card')].map(c => c.querySelector('h2')?.textContent ?? '')");
   const portCards = cards.filter(h => /^Port \d+/.test(h));
-  check("eight port cards, in their groups", portCards.length === 8 && portCards[0].includes("Group A · channel 1") && portCards[3].includes("Group A · channel 4") && portCards[4].includes("Group B · channel 1") && portCards[7].includes("Group C · channel 2"), JSON.stringify(portCards));
+  check("ten port cards, in their groups", portCards.length === 10 && portCards[0].includes("Group A · channel 1") && portCards[3].includes("Group A · channel 4") && portCards[4].includes("Group B · channel 1") && portCards[7].includes("Group B · channel 4") && portCards[8].includes("Group C · channel 1") && portCards[9].includes("Group C · channel 2"), JSON.stringify(portCards));
   check("a port in the mux profile has no pins of its own", !body.includes("RX pin (receives") || true);
   const rxLabels = await ev("[...document.querySelectorAll('section.card')].filter(c => /^Port \d+/.test(c.querySelector('h2')?.textContent ?? '')).filter(c => /RX pin|TX pin|Driver-enable/i.test(c.innerText)).length");
   check("no port card asks for RX, TX or driver-enable pins", rxLabels === 0, String(rxLabels));
@@ -83,7 +83,7 @@ try {
   await ev(`(() => { const sel = [...document.querySelectorAll('select')].find(s => [...s.options].map(o => o.value).join(',') === '1,2,3,4'); sel.value = '1'; sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await sleep(500);
   const fewer = (await ev("[...document.querySelectorAll('section.card')].map(c => c.querySelector('h2')?.textContent ?? '')")).filter(h => /^Port \d+/.test(h));
-  check("with one port in the first group there are five ports in all", fewer.length === 5, String(fewer.length));
+  check("with one port in the first group there are seven ports in all", fewer.length === 7, String(fewer.length));
   await clickButton("Save"); await sleep(900);
   const saved = await (await fetch("http://127.0.0.1:18132/api/v1/config", { headers: { Cookie: cookie } })).json();
   check("the sizes of the groups and the profile are saved", saved.config.mux[0].channels === 1 && saved.config.profile === "mux", JSON.stringify(saved.config.mux[0]));

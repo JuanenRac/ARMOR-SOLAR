@@ -31,7 +31,7 @@ constexpr std::size_t kMaxPasswordText = 64;
 constexpr std::size_t kPortCount = static_cast<std::size_t>(board::kPortCount);
 // The "mux" profile: a base board with 74HC4052 multiplexers in front of the UARTs, so that up to three hardware UARTs serve up to eight ports (4, 2 and 2 in the default wiring).
 constexpr std::size_t kMuxGroups = 3;
-constexpr std::size_t kMuxPorts = 8;
+constexpr std::size_t kMuxPorts = 10;
 
 enum class WifiSecurity { kOpen, kWpa2, kWpa3, kWpa2Wpa3 };
 // The panel over plain HTTP only, over HTTP and HTTPS (a certificate the node made for itself), or over HTTPS only (port 80 sends the browser to HTTPS).
@@ -191,7 +191,7 @@ inline const std::vector<int>& allowed_bauds(bool soft) {
 }
 inline bool profile_is_mux(const std::string& profile) { return profile == "mux"; }
 
-// Where port `index` (0 to 7) sits in the mux profile: its group and its channel there. False when the groups have no such port.
+// Where port `index` (0 to 9) sits in the mux profile: its group and its channel there. False when the groups have no such port.
 struct MuxSlot { std::size_t group = 0, channel = 0; };
 inline bool mux_slot_of(const std::array<MuxGroup, kMuxGroups>& groups, std::size_t index, MuxSlot& out) {
   std::size_t first = 0;
@@ -233,7 +233,7 @@ inline Settings default_settings(std::string_view mac_tail) {
   }
   // The wiring of the base board (ESP32-S3-WROOM-1 N16R8 or the Waveshare ESP32-S3-ETH; none of these is a reserved pin on either): three UARTs and their multiplexers, and the LEDs' shift register.
   s.mux[0] = {15, 16, 17, 18, 4};
-  s.mux[1] = {1, 2, 38, -1, 2};
+  s.mux[1] = {1, 2, 38, 4, 4};
   s.mux[2] = {40, 41, 42, -1, 2};
   s.leds = {21, 39, 47};
   return s;

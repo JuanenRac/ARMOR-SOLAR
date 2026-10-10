@@ -187,15 +187,15 @@ static Outcome run(MuxGroup& group, Board& board, std::uint64_t seconds, PortLed
 static void test_profile_settings() {
   const config::Settings d = config::default_settings("a1b2c3");
   CHECK(d.profile == "direct" && d.mux[0].tx == 15 && d.mux[0].rx == 16 && d.mux[0].s0 == 17 && d.mux[0].s1 == 18 && d.mux[0].channels == 4);
-  CHECK(d.mux[1].tx == 1 && d.mux[1].rx == 2 && d.mux[1].s0 == 38 && d.mux[1].s1 == -1 && d.mux[1].channels == 2);
+  CHECK(d.mux[1].tx == 1 && d.mux[1].rx == 2 && d.mux[1].s0 == 38 && d.mux[1].s1 == 4 && d.mux[1].channels == 4);
   CHECK(d.mux[2].tx == 40 && d.mux[2].rx == 41 && d.mux[2].s0 == 42 && d.mux[2].s1 == -1 && d.mux[2].channels == 2);
   CHECK(d.leds.data == 21 && d.leds.clock == 39 && d.leds.latch == 47 && d.leds.any());
-  CHECK(config::mux_port_count(d.mux) == 8);
-  // the ports of the groups: 1 to 4 in group A, 5 and 6 in B, 7 and 8 in C
+  CHECK(config::mux_port_count(d.mux) == 10);   // 4 + 4 + 2: ports 1 to 8 (batteries) and 9 and 10 (inverters)
+  // the ports of the groups: 1 to 4 in group A, 5 to 8 in B, 9 and 10 in C
   config::MuxSlot slot;
-  const std::size_t expected_group[8] = {0, 0, 0, 0, 1, 1, 2, 2}, expected_channel[8] = {0, 1, 2, 3, 0, 1, 0, 1};
-  for (std::size_t i = 0; i < 8; ++i) CHECK(config::mux_slot_of(d.mux, i, slot) && slot.group == expected_group[i] && slot.channel == expected_channel[i]);
-  CHECK(!config::mux_slot_of(d.mux, 8, slot) && !config::mux_slot_of(d.mux, 9, slot));
+  const std::size_t expected_group[10] = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2}, expected_channel[10] = {0, 1, 2, 3, 0, 1, 2, 3, 0, 1};
+  for (std::size_t i = 0; i < 10; ++i) CHECK(config::mux_slot_of(d.mux, i, slot) && slot.group == expected_group[i] && slot.channel == expected_channel[i]);
+  CHECK(!config::mux_slot_of(d.mux, 10, slot));
 
   // the default node is valid in the mux profile as it is in the direct one, whatever ports it has on
   config::Settings s = valid_settings();
@@ -204,17 +204,17 @@ static void test_profile_settings() {
   CHECK(config::validate(s).empty());
   s.ports[0] = {true, "pylontech", "us3000-a1", 0, -1, -1, -1, 0, 0, "auto", false, 2};
   s.ports[1] = {true, "pylontech", "us3000-a2", 0, -1, -1, -1, 0, 0, "auto", false, 0};
-  s.ports[6] = {true, "voltronic", "axpert-1", 0, -1, -1, -1, 0, 0, "auto", false, 0};
+  s.ports[8] = {true, "voltronic", "axpert-1", 0, -1, -1, -1, 0, 0, "auto", false, 0};
   s.ports[4] = {true, "ant", "ant-1", 0, -1, -1, -1, 0, 0, "auto", true, 0};
   CHECK(config::validate(s).empty());      // no pins of their own: the ports' rx and tx are not looked at
   // only the ports the groups serve may be on
-  s.ports[8].enabled = true;
-  CHECK(has(config::validate(s), "ports.8.enabled", "not_in_profile"));
-  s.ports[8].enabled = false;
+  s.mux[1].channels = 2;                   // group B serves two ports (its second select line tied to ground): 8 ports in all, so 9 and 10 do not exist... until C is counted
   s.mux[2].channels = 1;                   // the third group serves only one port now: 7 ports in all
-  s.ports[7] = {true, "voltronic", "axpert-2", 0, -1, -1, -1, 0, 0, "auto", false, 0};
-  CHECK(has(config::validate(s), "ports.7.enabled", "not_in_profile"));
-  s.ports[7].enabled = false; s.mux[2].channels = 2;
+  CHECK(has(config::validate(s), "ports.8.enabled", "not_in_profile"));
+  s.ports[9] = {true, "voltronic", "axpert-2", 0, -1, -1, -1, 0, 0, "auto", false, 0};
+  CHECK(has(config::validate(s), "ports.9.enabled", "not_in_profile"));
+  s.ports[9].enabled = false; s.mux[1].channels = 4; s.mux[2].channels = 2;
+  CHECK(config::validate(s).empty());
   // a name is still a name, a speed still a speed
   s.ports[1].name = "us3000-a1";
   CHECK(has(config::validate(s), "ports.1.name", "conflict"));
@@ -232,9 +232,9 @@ static void test_profile_settings() {
   s.mux[0].tx = 15;
   s.mux[0].s1 = -1;
   CHECK(has(config::validate(s), "mux.0.s1", "required"));     // four ports need both select pins
-  s.mux[0].channels = 2; s.ports[6].enabled = false;
+  s.mux[0].channels = 2; s.ports[8].enabled = false;
   CHECK(config::validate(s).empty());                            // two need only one
-  s.mux[0].channels = 4; s.mux[0].s1 = 18; s.ports[6].enabled = true;
+  s.mux[0].channels = 4; s.mux[0].s1 = 18; s.ports[8].enabled = true;
   s.mux[1].rx = -1;
   CHECK(has(config::validate(s), "mux.1.rx", "required"));
   s.mux[1].rx = 2;
@@ -243,7 +243,7 @@ static void test_profile_settings() {
   s.mux[2].s0 = 42;
   s.mux[1].channels = 5;
   CHECK(has(config::validate(s), "mux.1.channels", "range"));
-  s.mux[1].channels = 2;
+  s.mux[1].channels = 4;
   // the LEDs: all three pins or none
   s.leds.clock = -1;
   CHECK(has(config::validate(s), "leds.clock", "required"));
@@ -260,9 +260,9 @@ static void test_profile_settings() {
   CHECK(has(config::validate(s), "ports.0.rx", "required"));
   s.ports[0].rx = 16;
   s.ports[0].rx = board::kDefaultPins[0].rx;
-  s.ports[6].invert = true;                // an emulated port cannot flip its line
-  CHECK(has(config::validate(s), "ports.6.invert", "invalid"));
-  s.ports[6].invert = false;
+  s.ports[8].invert = true;                // an emulated port cannot flip its line
+  CHECK(has(config::validate(s), "ports.8.invert", "invalid"));
+  s.ports[8].invert = false;
   s.ports[0].cells_per_cycle = 9;
   CHECK(has(config::validate(s), "ports.0.cells_per_cycle", "range"));
 }

@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.7] - The base board with ten ports
+
+- **The mux profile serves ten ports** in groups of 4, 4 and 2 (batteries 1 to 8 and inverters 9 and 10), the shape of version 1.0 of the base board: group B gets its second select line (GPIO 4 by default; GPIO 37, which that version of the board wires, belongs to the octal PSRAM of both boards and is refused), so its four ports are reachable. The ports of a group were already limited only by its channels; what changed is the defaults, the number of ports the settings allow in this profile and the words of the panel.
+- **Docs:** `NODE_HARDWARE.md` describes the board - which MAX3232 serves which sockets and which TTL connectors, the rule that a converter and its two connectors are never used together, what the firmware does with each variant - and lists what was found reading its netlist (the pin, the unconnected 5 V, the open connectors, the floating select lines, the decoupling). Nothing has been tried on a board.
+
 ## [0.2.6] - A Pylontech battery that sleeps is woken, and the node can update itself from GitHub
 
 - **The node can look for a newer firmware on GitHub and install it** (*Firmware and log -> Check GitHub for a new version*), next to - never instead of - the upload of a file: it asks the repository's latest release, offers it only when it is newer and the release carries the SHA-256 of the image, downloads **the image built for this board** (`armor_solar-<board>.bin`) straight into the other firmware slot with a progress bar, and installs it only when the hash matches; then it restarts into it. Administrators only; it needs the node to reach the Internet. The code is the one the radar node already had, now shared by every node (`main/github_update.*`, `core/semver.hpp`, `core/release_assets.hpp` in ARMOR-COMMON's firmware base).

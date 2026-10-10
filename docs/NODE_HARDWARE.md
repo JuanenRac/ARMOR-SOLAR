@@ -29,11 +29,35 @@ the nodes that see the router well and the PoE one for the rest. A stack of batt
   and an RS485 transceiver module (with automatic direction control) for RS485. **Never connect an RS232 line straight to a pin.**
 - **Isolation:** a serial port can share ground with a battery bank and, on some inverters, with the mains, so find out before connecting: if it does, use an **isolated**
   RS232 or RS485 converter between the equipment and the node, and keep the node's supply apart from the battery ground, so a fault on the battery side cannot reach
-  the network side. **The eight-port base board has no isolation on purpose**, because of what its equipment is: the serial ports of the Pylontech batteries are already
+  the network side. **The base board has no isolation on purpose**, because of what its equipment is: the serial ports of the Pylontech batteries are already
   isolated from the battery's negative (and the batteries' positives and negatives are tied to each other, so a DC breaker opening one pole does not leave a port
   floating against them), and the RS232 of the inverter is highly isolated from both its positive and its negative. That is the owner's statement about the equipment,
   not something this project checked: a port that is not isolated (the ANT-BMS one is the pack's negative, see above) does not go on that board without an isolator.
 - **Cable length:** RS232 is meant for a few metres; for more, use RS485, which reaches hundreds of metres, and put the node near the equipment.
+
+## The base board, version 1.0: ten RJ45 sockets and eight TTL connectors
+
+One ESP32-S3 (the Wi-Fi N16R8 module, or the Waveshare ESP32-S3-ETH) drives up to **eight batteries and two inverters** through three **74HC4052** multiplexers and five **MAX3232** level converters. The mux profile of the firmware (*Ports of the node -> Base board*) is written for exactly this wiring.
+
+| Group | Multiplexer | MAX3232 | RJ45 sockets | TTL connectors | Ports | Meant for |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | U6, on UART1 (GPIO 15 TX, 16 RX; select GPIO 17, 18) | U2, U3 | ST1, ST2 / ST3, ST4 | ANT1, ANT2 / ANT3, ANT4 | 1 to 4 | batteries |
+| B | U7, on UART2 (GPIO 1 TX, 2 RX; select GPIO 38 and the second select line) | U4, U5 | ST5, ST6 / ST7, ST8 | ANT5, ANT6 / ANT7, ANT8 | 5 to 8 | batteries |
+| C | U8, on UART0 (GPIO 40 TX, 41 RX; select GPIO 42, the second select line tied to ground) | U10 | ST9, ST10 | none | 9 and 10 | inverters (RS232) |
+
+**One MAX3232 or two TTL connectors, never both.** Each MAX3232 serves two RJ45 sockets and shares its two lines with two TTL connectors (the 3.3 V ones of an ANT-BMS: pin 1 +3V3, 2 ground, 3 the node's transmit, 4 the node's receive). Mount the MAX3232 with its capacitors and the protection diodes of its two sockets for two **Pylontech** batteries (115200 baud, RS232 console), or leave all of that out and plug two **ANT-BMS** into the connectors (19200 baud, TTL, straight to the multiplexer, so no polarity setting is needed). That gives 0, 2, 4, 6 or 8 Pylontech batteries, the rest being ANT-BMS. The pull-up resistors on the transmit lines (the 100 kohm ones next to each connector pair) stay in every variant: without a converter they are what keeps an idle line high.
+
+What the firmware does with it: the ports of a group take turns on the group's UART, each at its own speed (a Pylontech at 115200, an ANT-BMS at 19200, a Voltronic inverter at 2400 unless the panel says otherwise), so a stack of batteries and an inverter on different groups are read at the same time. A port reads a few seconds at a time; the whole round of four ports in a group takes as long as its slowest batteries.
+
+**Points of this version of the board** (found reading its netlist; none has been tried on a board):
+
+- **GPIO 37 cannot be the second select line of group B.** On both boards GPIO 33 to 37 belong to the octal PSRAM (35, 36 and 37 are on the header, but the chip uses them), so the firmware refuses them as ports' pins and the node would never switch above two ports in that group. The firmware's default is GPIO 4 (free on both boards; on the Ethernet one it is a pin of the microSD socket, usable while no card is used); the board has to wire that pin, or any other free one, and the panel then says which.
+- **The module's 5 V pin is not connected**, so the board is powered through the module's own USB socket (its 3.3 V regulator feeds everything here, with the eight ANT connectors' supply on top). For an installation without a USB supply, bring the 5 V pin to a connector, with a diode so that a USB cable and the supply do not feed each other.
+- **The eight TTL connectors are an open door**: their supply and their two lines go out to cables. A series resistor on each receive line (100 ohm to 1 kohm), a resettable fuse or a ferrite on their 3.3 V and a protection diode array are worth their cost; the RS232 sides already have a bidirectional 15 V diode on each of the two lines.
+- **The select lines have no pull resistor**: until the firmware starts they float and the multiplexers point at any channel. Harmless (every transmit line idles high through its pull-up), but a 100 kohm to ground on each select line makes it tidy.
+- **Only 100 nF next to each chip**: the five charge pumps and the LEDs make current spikes; a 10 uF electrolytic or ceramic where the module's 3.3 V enters the board is cheap.
+- The LEDs (74HC595, below) are for ports 1 to 8; the two inverter ports have none. The register's last output (pin 9) is free to chain a second one.
+- The RJ45 wiring to a DB9 RS232 inverter needs its own cable; on the sockets, pin 3 receives (it is the equipment's transmit), pin 6 transmits and pin 8 is ground: check the equipment's pinout before making it.
 
 ## The LEDs of the base board (one per port, through a 74HC595)
 
