@@ -237,7 +237,7 @@ inline Settings default_settings(std::string_view mac_tail) {
   s.mux[0] = {15, 16, 17, 18, 4};
   s.mux[1] = {1, 2, 38, 46, 4};
   s.mux[2] = {40, 41, 42, -1, 2};
-  s.leds = {21, 39, 47, 8, 3};
+  s.leds = {21, 39, 47, 45, 3};   // LED 9 on GPIO 45, LED 10 on GPIO 3: both on the header of both boards (GPIO 8 is the ETH board's camera connector)
   return s;
 }
 

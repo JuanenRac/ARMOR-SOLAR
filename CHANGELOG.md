@@ -2,9 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.1] - LEDs 9 and 10 on pins both boards have
+
+- **The default pins of LEDs 9 and 10 are GPIO 45 and GPIO 3** (0.3.0 said GPIO 8, which is wired to the camera connector of the Waveshare ESP32-S3-ETH, is never offered there and so made the default settings invalid on that board). Both are strapping pins that only read at reset: an LED behind a 470 ohm to ground does not pull them the wrong way. Still changeable in the panel. Not run on a board.
+
 ## [0.3.0] - LEDs 9 and 10 on their own pins
 
-- **LEDs 9 and 10 (the two inverter ports) hang straight on a GPIO each** (defaults GPIO 8 and GPIO 3, settings `leds.led9` and `leds.led10` in the panel; -1 leaves one out), so the base board needs no second 74HC595 for two LEDs. The register goes back to eight bits (`shift_out`) and drives LEDs 1 to 8; bits 8 and 9 of the pattern go to the two pins. This replaces the chained second register of 0.2.9. Both pins are checked against the other pins like any other. Not run on a board.
+- **LEDs 9 and 10 (the two inverter ports) hang straight on a GPIO each** (defaults GPIO 45 and GPIO 3, settings `leds.led9` and `leds.led10` in the panel; -1 leaves one out), so the base board needs no second 74HC595 for two LEDs. The register goes back to eight bits (`shift_out`) and drives LEDs 1 to 8; bits 8 and 9 of the pattern go to the two pins. This replaces the chained second register of 0.2.9. Both pins are checked against the other pins like any other. Not run on a board.
 
 ## [0.2.9] - Ten LEDs
 
