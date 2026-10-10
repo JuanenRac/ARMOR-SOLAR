@@ -68,6 +68,15 @@ try {
   const rxLabels = await ev("[...document.querySelectorAll('section.card')].filter(c => /^Port \d+/.test(c.querySelector('h2')?.textContent ?? '')).filter(c => /RX pin|TX pin|Driver-enable/i.test(c.innerText)).length");
   check("no port card asks for RX, TX or driver-enable pins", rxLabels === 0, String(rxLabels));
   check("the inversion and the rotation settings are there", body.includes("Signals arrive inverted") && body.includes("Modules' cells per cycle"));
+  check("no pair warning while the pairs agree", !body.includes("share one MAX3232"));
+  await ev("S.cfg.ports[4].kind = 'pylontech'; render();");   // port 5 on RS232 next to port 6 on ANT-BMS (TTL)
+  await sleep(300);
+  body = await text();
+  check("a pair that mixes RS232 and TTL hardware is warned about", body.includes("Ports 5 and 6 share one MAX3232") && body.includes("Ports 6 and 5 share one MAX3232"));
+  await ev("S.cfg.ports[4].kind = 'raw'; render();");
+  await sleep(300);
+  body = await text();
+  check("the warning goes away when the pair agrees again", !body.includes("share one MAX3232"));
   await shot(`spanel-${board}-mux-ports.png`);
 
   // change the profile back to direct: ten ports with their own pins

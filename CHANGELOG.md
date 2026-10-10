@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.2] - A warning for a pair that mixes hardware
+
+- **The ports page warns when the two ports of a pair ask for different hardware** (mux profile, ports 1-2, 3-4, 5-6 and 7-8): each MAX3232 of the base board serves one pair, which is fitted either as RS232 (Pylontech, inverter) or as TTL (ANT-BMS), not both. With both ports of a pair switched on, one on an ANT-BMS and the other on a Pylontech or an inverter, each card says so; a port with the raw kind does not count. It is a hint, not an error: the settings are still saved. In the seven languages.
+
 ## [0.3.1] - LEDs 9 and 10 on pins both boards have
 
 - **The default pins of LEDs 9 and 10 are GPIO 45 and GPIO 3** (0.3.0 said GPIO 8, which is wired to the camera connector of the Waveshare ESP32-S3-ETH, is never offered there and so made the default settings invalid on that board). Both are strapping pins that only read at reset: an LED behind a 470 ohm to ground does not pull them the wrong way. Still changeable in the panel. Not run on a board.

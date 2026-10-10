@@ -542,6 +542,16 @@ function consoleView(index) {
     c && c.truncated ? el("p", { class: "hint" }, t("consoleTruncated")) : null);
 }
 
+// On the base board each MAX3232 serves a pair of ports (1-2, 3-4, 5-6, 7-8): the pair is fitted either as RS232 (MAX3232 and RJ45: Pylontech, inverters) or as TTL (ANT connectors only: ANT-BMS).
+// The number of the other port of the pair when it is switched on and wants the other kind of hardware, 0 otherwise.
+function pairMismatch(index) {
+  if (S.cfg.profile !== "mux" || index > 7) return 0;
+  const other = index ^ 1, a = S.cfg.ports[index], b = S.cfg.ports[other];
+  if (!a || !b || !a.enabled || !b.enabled) return 0;
+  const ttl = p => p.kind === "ant", rs232 = p => p.kind === "pylontech" || p.kind === "voltronic";
+  return (ttl(a) && rs232(b)) || (rs232(a) && ttl(b)) ? other + 1 : 0;
+}
+
 function portCard(index) {
   const mux = S.cfg.profile === "mux", slot = mux ? muxSlotOf(index) : null;
   const cfg = S.cfg.ports[index], base = "ports." + index + ".", soft = !mux && index >= 3, st = portStatus(index), kind = kindOf(cfg.kind);
@@ -549,6 +559,7 @@ function portCard(index) {
   const kindChanged = value => { if (!cfg.name || /^port\d$/.test(cfg.name)) setValue(base + "name", (value === "voltronic" ? "inverter" : value === "pylontech" || value === "ant" ? "battery" : "monitor") + "-" + (index + 1)); };
   return el("section", { class: "card" }, el("h2", {}, t("portN", index + 1), " · " + (mux ? t("portGroup", "ABC"[slot.group], slot.channel + 1) : t(soft ? "portEmulated" : "portHardware")), cfg.enabled ? " · " + t(kind[1]).split(" (")[0] : ""),
     field("portEnabled", base + "enabled", { type: "checkbox", rerender: true }),
+    cfg.enabled && pairMismatch(index) ? note(t("pairMismatch", index + 1, pairMismatch(index)), "") : null,
     cfg.enabled ? [
       el("div", { class: "row" },
         field("equipment", base + "kind", { type: "select", rerender: true, after: kindChanged, options: KINDS.map(k => [k[0], t(k[1])]) }),
