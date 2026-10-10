@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.9] - Ten LEDs
+
+- **LEDs 9 and 10 for the two inverter ports**, on a second 74HC595 chained behind the first one (its SER on the first one's QH', the same clock and latch, LED 9 on its QA and LED 10 on its QB): the node shifts sixteen bits every time (`shift_out16`), so a board with a single register is unaffected. The documentation says why an LED on the first register's QH' cannot be a ninth LED (it repeats LED 8).
+
 ## [0.2.8] - The second select line of group B moves to GPIO 46
 
 - **The base board's group B takes GPIO 46 by default** (0.2.7 said GPIO 4, which is a pin of the microSD socket of the Waveshare ESP32-S3-ETH and does not reach its header, so a board with both footprints could not wire it). GPIO 46 is on the header of both boards and reads low at start, so with a 100 kohm to ground the multiplexer sits on its first channel until the firmware takes over. The documentation says so, and the header of the Ethernet board is no longer described as having the microSD pins.

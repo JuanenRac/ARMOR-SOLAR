@@ -39,11 +39,11 @@ bool output(int gpio) {
 
 void led_task(void*) {
   Pins pins;
-  int shown = -1;
+  int shown = -1;   // nothing shown yet
   for (;;) {
-    std::uint8_t pattern;
+    std::uint16_t pattern;
     { std::lock_guard<std::mutex> guard(g_lock); pattern = g_leds.pattern(now_ms()); }
-    if (pattern != shown) { solar::shift_out(pins, pattern); shown = pattern; }
+    if (pattern != shown) { solar::shift_out16(pins, pattern); shown = pattern; }
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }

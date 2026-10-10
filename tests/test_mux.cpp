@@ -469,6 +469,20 @@ static void test_leds() {
   CHECK(leds.pattern(100000) == 0);
 }
 
+static void test_shift_out16() {
+  RecordedPins pins;
+  shift_out16(pins, 0x0281);   // LED 1, LED 8 and LED 10
+  int clocks = 0, ones = 0;
+  std::string data;
+  for (const std::string& e : pins.events) { if (e == "C1") ++clocks; if (e == "D1") { ++ones; data += '1'; } else if (e == "D0") data += '0'; }
+  CHECK(clocks == 16 && ones == 3 && data == "0000001010000001");   // sixteen bits, most significant first: the second register's far end first
+  CHECK(pins.events.front() == "L0" && pins.events[pins.events.size() - 2] == "L1");
+  PortLeds leds;
+  leds.set_enabled(8, true); leds.set_enabled(9, true);
+  leds.good(8, 1000); leds.good(9, 1000);
+  CHECK(leds.pattern(1000) == 0x0300 && leds.pattern(1100) == 0);   // ports 9 and 10 are bits 8 and 9
+}
+
 static void test_shift_out() {
   RecordedPins pins;
   shift_out(pins, 0x81);   // LED 1 and LED 8
@@ -498,7 +512,7 @@ static void test_leds_follow_the_turns() {
     const MuxTurn turn = group.step(board, clock);
     if (turn.reading) { leds.good(turn.port, board.now); if ((leds.pattern(board.now) & 0x01) != 0) ++good_seen; }
     if (turn.ended && turn.failed) { leds.bad(turn.port, board.now); if ((leds.pattern(board.now) & 0x02) != 0) ++bad_seen; }
-    CHECK((leds.pattern(board.now) & 0xFC) == 0);
+    CHECK((leds.pattern(board.now) & 0xFFFC) == 0);
   }
   CHECK(good_seen >= 5 && bad_seen >= 3);
 }
@@ -609,6 +623,7 @@ int main() {
   test_the_clock_of_a_reading();
   test_leds();
   test_shift_out();
+  test_shift_out16();
   test_leds_follow_the_turns();
   test_cells_in_rotation();
   test_poller_says_when_it_is_busy();

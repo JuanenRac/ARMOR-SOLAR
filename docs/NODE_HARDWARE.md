@@ -56,7 +56,7 @@ What the firmware does with it: the ports of a group take turns on the group's U
 - **The eight TTL connectors are an open door**: their supply and their two lines go out to cables. A series resistor on each receive line (100 ohm to 1 kohm), a resettable fuse or a ferrite on their 3.3 V and a protection diode array are worth their cost; the RS232 sides already have a bidirectional 15 V diode on each of the two lines.
 - **The select lines have no pull resistor**: until the firmware starts they float and the multiplexers point at any channel. Harmless (every transmit line idles high through its pull-up), but a 100 kohm to ground on each select line makes it tidy.
 - **Only 100 nF next to each chip**: the five charge pumps and the LEDs make current spikes; a 10 uF electrolytic or ceramic where the module's 3.3 V enters the board is cheap.
-- The LEDs (74HC595, below) are for ports 1 to 8; the two inverter ports have none. The register's last output (pin 9) is free to chain a second one.
+- **LEDs 9 and 10 (the inverter ports) need a second 74HC595, chained.** The first register's QH' output (pin 9) is *not* a ninth output: it only repeats the eighth stage, so an LED on it would light together with LED 8. Put a second 74HC595 behind the first one - its SER (pin 14) on the first one's QH' (pin 9), the same clock (pin 11) and latch (pin 12), OE (pin 13) to ground, SRCLR (pin 10) to +3V3, 100 nF on its supply - with LED 9 on its QA (pin 15) and LED 10 on its QB (pin 1), each through its own 470 ohm. No GPIO is needed: the node shifts sixteen bits every time, and a board with only the first register simply keeps the last eight.
 - The RJ45 wiring to a DB9 RS232 inverter needs its own cable; on the sockets, pin 3 receives (it is the equipment's transmit), pin 6 transmits and pin 8 is ground: check the equipment's pinout before making it.
 
 ## The LEDs of the base board (one per port, through a 74HC595)
@@ -72,7 +72,7 @@ The firmware's *mux* profile lights one LED per port through a **74HC595** shift
 | 12 | RCLK (latch) | GPIO 47 |
 | 13 | OE, active low | GND (outputs always on) |
 | 10 | SRCLR, active low | +3V3 (never clears) |
-| 9 | QH' (serial out) | not connected (only for a second register in a chain) |
+| 9 | QH' (serial out) | the SER pin of the second register, when there is one (LEDs 9 and 10); nothing else |
 | 15, 1, 2, 3, 4, 5, 6, 7 | QA, QB, QC, QD, QE, QF, QG, QH | LED 1 to LED 8 (port 1 to port 8), each through its own resistor |
 
 Each output drives **one resistor and one LED in series, to ground**: output, then a resistor of about 470 ohm (about 2.8 mA from 3.3 V for an ordinary LED; the register may give about 6 mA per output and 70 mA in all), then the LED's anode; the cathode goes to GND. A high output lights the LED (the firmware sends bit 0 to QA, so QA is port 1 and QH is port 8; QA is pin 15, apart from QB to QH on pins 1 to 7). A resistor is never shared between LEDs. The outputs may flicker for a moment when the board is powered, until the node sends its first byte. Not built, not run on a board.
