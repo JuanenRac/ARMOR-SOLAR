@@ -59,6 +59,15 @@ What the firmware does with it: the ports of a group take turns on the group's U
 - **LEDs 9 and 10 (the inverter ports) go straight on a GPIO each.** The 74HC595's QH' output (pin 9) is *not* a ninth output (it only repeats the eighth stage), and a whole second register for two LEDs is not worth it. Put LED 9 on GPIO 45 and LED 10 on GPIO 3 (the defaults, changeable in the panel), each through its own 470 ohm to the LED and then to ground. Both are on the header of both boards (GPIO 8 is not: it is the ETH board's camera connector). They are strapping pins read only at reset (GPIO 3 chooses the JTAG source, GPIO 45 the flash voltage on chips that do not fix it): an LED behind a resistor to ground does not pull them the wrong way. Leave QH' unconnected.
 - The RJ45 wiring to a DB9 RS232 inverter needs its own cable; on the sockets, pin 3 receives (it is the equipment's transmit), pin 6 transmits and pin 8 is ground: check the equipment's pinout before making it.
 
+## Fitting the base board: one pair of ports at a time
+
+Each MAX3232 serves **two** ports. For each pair of ports the board is fitted one of two ways, never both:
+
+- **Full RS232 (Pylontech, inverters):** fit the MAX3232 of the pair with its two RJ45 sockets and their protection diodes.
+- **TTL (ANT-BMS):** fit only the two 4-pin ANTx connectors (with their 220 ohm receive resistors) and leave out the MAX3232 and the RJ45 sockets of that pair.
+
+Because the two circuits are never fitted together, nothing else drives the receive line of a port that uses an ANT connector. The choice is made per pair (four pairs: ports 1-2, 3-4, 5-6 and 7-8), not per port; the firmware sets the kind of each port on its own in the panel. The same board layout exists in two versions, of which **one** module is fitted: the Wi-Fi one (powered from its USB-C socket) or the Ethernet one (powered from USB-C or PoE, with Wi-Fi as well); they share the nets on purpose.
+
 ## The LEDs of the base board (one per port: eight through a 74HC595, two on their own pins)
 
 The firmware's *mux* profile lights one LED per port through a **74HC595** shift register on three GPIO (the defaults are settings in the panel):
