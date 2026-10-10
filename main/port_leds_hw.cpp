@@ -43,7 +43,12 @@ void led_task(void*) {
   for (;;) {
     std::uint16_t pattern;
     { std::lock_guard<std::mutex> guard(g_lock); pattern = g_leds.pattern(now_ms()); }
-    if (pattern != shown) { solar::shift_out16(pins, pattern); shown = pattern; }
+    if (pattern != shown) {
+      solar::shift_out(pins, static_cast<std::uint8_t>(pattern & 0xFF));
+      if (g_pins.led9 >= 0) gpio_set_level(static_cast<gpio_num_t>(g_pins.led9), (pattern >> 8) & 1);
+      if (g_pins.led10 >= 0) gpio_set_level(static_cast<gpio_num_t>(g_pins.led10), (pattern >> 9) & 1);
+      shown = pattern;
+    }
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
@@ -52,6 +57,7 @@ void led_task(void*) {
 bool start(const config::LedPins& pins, const config::Settings& settings) {
   if (!pins.any() || pins.data < 0 || pins.clock < 0 || pins.latch < 0 || g_running) return false;
   if (!output(pins.data) || !output(pins.clock) || !output(pins.latch)) { ESP_LOGE(kTag, "the LED pins could not be set up"); return false; }
+  if ((pins.led9 >= 0 && !output(pins.led9)) || (pins.led10 >= 0 && !output(pins.led10))) { ESP_LOGE(kTag, "the pins of LEDs 9 and 10 could not be set up"); return false; }
   g_pins = pins;
   {
     std::lock_guard<std::mutex> guard(g_lock);
@@ -59,7 +65,7 @@ bool start(const config::LedPins& pins, const config::Settings& settings) {
   }
   g_running = true;
   xTaskCreate(led_task, "port-leds", 3072, nullptr, 3, nullptr);
-  ESP_LOGI(kTag, "LEDs on data %d, clock %d, latch %d", pins.data, pins.clock, pins.latch);
+  ESP_LOGI(kTag, "LEDs on data %d, clock %d, latch %d, LED 9 on %d, LED 10 on %d", pins.data, pins.clock, pins.latch, pins.led9, pins.led10);
   return true;
 }
 

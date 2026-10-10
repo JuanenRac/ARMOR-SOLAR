@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.0] - LEDs 9 and 10 on their own pins
+
+- **LEDs 9 and 10 (the two inverter ports) hang straight on a GPIO each** (defaults GPIO 8 and GPIO 3, settings `leds.led9` and `leds.led10` in the panel; -1 leaves one out), so the base board needs no second 74HC595 for two LEDs. The register goes back to eight bits (`shift_out`) and drives LEDs 1 to 8; bits 8 and 9 of the pattern go to the two pins. This replaces the chained second register of 0.2.9. Both pins are checked against the other pins like any other. Not run on a board.
+
 ## [0.2.9] - Ten LEDs
 
 - **LEDs 9 and 10 for the two inverter ports**, on a second 74HC595 chained behind the first one (its SER on the first one's QH', the same clock and latch, LED 9 on its QA and LED 10 on its QB): the node shifts sixteen bits every time (`shift_out16`), so a board with a single register is unaffected. The documentation says why an LED on the first register's QH' cannot be a ninth LED (it repeats LED 8).

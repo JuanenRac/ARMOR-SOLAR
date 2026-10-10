@@ -189,7 +189,7 @@ static void test_profile_settings() {
   CHECK(d.profile == "direct" && d.mux[0].tx == 15 && d.mux[0].rx == 16 && d.mux[0].s0 == 17 && d.mux[0].s1 == 18 && d.mux[0].channels == 4);
   CHECK(d.mux[1].tx == 1 && d.mux[1].rx == 2 && d.mux[1].s0 == 38 && d.mux[1].s1 == 46 && d.mux[1].channels == 4);
   CHECK(d.mux[2].tx == 40 && d.mux[2].rx == 41 && d.mux[2].s0 == 42 && d.mux[2].s1 == -1 && d.mux[2].channels == 2);
-  CHECK(d.leds.data == 21 && d.leds.clock == 39 && d.leds.latch == 47 && d.leds.any());
+  CHECK(d.leds.data == 21 && d.leds.clock == 39 && d.leds.latch == 47 && d.leds.led9 == 8 && d.leds.led10 == 3 && d.leds.any());
   CHECK(config::mux_port_count(d.mux) == 10);   // 4 + 4 + 2: ports 1 to 8 (batteries) and 9 and 10 (inverters)
   // the ports of the groups: 1 to 4 in group A, 5 to 8 in B, 9 and 10 in C
   config::MuxSlot slot;
@@ -249,7 +249,7 @@ static void test_profile_settings() {
   CHECK(has(config::validate(s), "leds.clock", "required"));
   s.leds.clock = 21;
   CHECK(has(config::validate(s), "leds.clock", "conflict"));
-  s.leds = {-1, -1, -1};
+  s.leds = {-1, -1, -1, -1, -1};
   CHECK(config::validate(s).empty());
   s.leds = {21, 39, 47};
   // the profile must be one of the two, and the direct one is checked as before
@@ -271,10 +271,10 @@ static void test_profile_document() {
   config::Settings s = valid_settings();
   s.profile = "mux";
   s.mux[1] = {3, 4, 5, -1, 2};
-  s.leds = {-1, -1, -1};
+  s.leds = {-1, -1, -1, -1, -1};
   s.ports[0] = {true, "pylontech", "us3000-a1", 0, -1, -1, -1, 0, 0, "auto", true, 3};
   const std::string stored = config::to_json(s, true);
-  CHECK(stored.find("\"profile\":\"mux\"") != std::string::npos && stored.find("\"leds\":{\"data\":-1,\"clock\":-1,\"latch\":-1}") != std::string::npos);
+  CHECK(stored.find("\"profile\":\"mux\"") != std::string::npos && stored.find("\"leds\":{\"data\":-1,\"clock\":-1,\"latch\":-1,\"led9\":-1,\"led10\":-1}") != std::string::npos);
   CHECK(stored.find("\"invert\":true") != std::string::npos && stored.find("\"cells_per_cycle\":3") != std::string::npos);
   config::Settings back;
   config::Problems problems;
@@ -469,18 +469,11 @@ static void test_leds() {
   CHECK(leds.pattern(100000) == 0);
 }
 
-static void test_shift_out16() {
-  RecordedPins pins;
-  shift_out16(pins, 0x0281);   // LED 1, LED 8 and LED 10
-  int clocks = 0, ones = 0;
-  std::string data;
-  for (const std::string& e : pins.events) { if (e == "C1") ++clocks; if (e == "D1") { ++ones; data += '1'; } else if (e == "D0") data += '0'; }
-  CHECK(clocks == 16 && ones == 3 && data == "0000001010000001");   // sixteen bits, most significant first: the second register's far end first
-  CHECK(pins.events.front() == "L0" && pins.events[pins.events.size() - 2] == "L1");
+static void test_ports_9_and_10_are_bits_8_and_9() {
   PortLeds leds;
-  leds.set_enabled(8, true); leds.set_enabled(9, true);
-  leds.good(8, 1000); leds.good(9, 1000);
-  CHECK(leds.pattern(1000) == 0x0300 && leds.pattern(1100) == 0);   // ports 9 and 10 are bits 8 and 9
+  leds.set_enabled(0, true); leds.set_enabled(7, true); leds.set_enabled(8, true); leds.set_enabled(9, true);
+  leds.good(0, 1000); leds.good(7, 1000); leds.good(8, 1000); leds.good(9, 1000);
+  CHECK(leds.pattern(1000) == 0x0381 && leds.pattern(1100) == 0);   // the register gets the low byte, the two own pins get bits 8 and 9
 }
 
 static void test_shift_out() {
@@ -623,7 +616,7 @@ int main() {
   test_the_clock_of_a_reading();
   test_leds();
   test_shift_out();
-  test_shift_out16();
+  test_ports_9_and_10_are_bits_8_and_9();
   test_leds_follow_the_turns();
   test_cells_in_rotation();
   test_poller_says_when_it_is_busy();

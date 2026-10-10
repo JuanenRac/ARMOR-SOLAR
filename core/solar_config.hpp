@@ -130,9 +130,11 @@ struct MuxGroup {
   int s1 = -1;          // -1: tied to ground on the board (at most two ports in the group)
   int channels = 2;     // how many ports the group serves (1 to 4)
 };
-// The 74HC595 that lights one LED per port: the pin of its serial data, of its shift clock and of its latch. All -1: no LEDs.
+// The 74HC595 that lights the LEDs of ports 1 to 8: the pin of its serial data, of its shift clock and of its latch. All -1: no LEDs. The LEDs of ports 9 and 10 (the inverters)
+// hang straight on a GPIO each (`led9`, `led10`; -1: not fitted), so no second register is needed for two LEDs.
 struct LedPins {
   int data = -1, clock = -1, latch = -1;
+  int led9 = -1, led10 = -1;
   bool any() const { return data >= 0 || clock >= 0 || latch >= 0; }
 };
 
@@ -235,7 +237,7 @@ inline Settings default_settings(std::string_view mac_tail) {
   s.mux[0] = {15, 16, 17, 18, 4};
   s.mux[1] = {1, 2, 38, 46, 4};
   s.mux[2] = {40, 41, 42, -1, 2};
-  s.leds = {21, 39, 47};
+  s.leds = {21, 39, 47, 8, 3};
   return s;
 }
 
@@ -429,6 +431,8 @@ inline void read_settings(const json::Value& document, Settings& s, Problems& pr
     read_int(*leds, "data", s.leds.data, -1, board::kLastGpio, "leds.data", problems);
     read_int(*leds, "clock", s.leds.clock, -1, board::kLastGpio, "leds.clock", problems);
     read_int(*leds, "latch", s.leds.latch, -1, board::kLastGpio, "leds.latch", problems);
+    read_int(*leds, "led9", s.leds.led9, -1, board::kLastGpio, "leds.led9", problems);
+    read_int(*leds, "led10", s.leds.led10, -1, board::kLastGpio, "leds.led10", problems);
   }
   if (const json::Value* web = document.get("web"); web != nullptr && web->is_object()) {
     if (!read_choice<WebMode>(*web, "mode", {{"http", WebMode::kHttp}, {"both", WebMode::kBoth}, {"https", WebMode::kHttps}}, s.web)) bad(problems, "web.mode", "invalid");
@@ -588,6 +592,8 @@ inline Problems validate(const Settings& s) {
       if (s.leds.clock < 0) bad(problems, "leds.clock", "required"); else claim(s.leds.clock, "leds", "leds.clock");
       if (s.leds.latch < 0) bad(problems, "leds.latch", "required"); else claim(s.leds.latch, "leds", "leds.latch");
     }
+    if (s.leds.led9 >= 0) claim(s.leds.led9, "leds", "leds.led9");
+    if (s.leds.led10 >= 0) claim(s.leds.led10, "leds", "leds.led10");
   }
   const std::size_t mux_ports = mux_port_count(s.mux);
   for (std::size_t i = 0; i < kPortCount; ++i) {
@@ -666,7 +672,7 @@ inline std::string to_json(const Settings& s, bool secrets) {
   w.key("mux").begin_array();
   for (const MuxGroup& group : s.mux) w.begin_object().field("tx", group.tx).field("rx", group.rx).field("s0", group.s0).field("s1", group.s1).field("channels", group.channels).end_object();
   w.end_array();
-  w.key("leds").begin_object().field("data", s.leds.data).field("clock", s.leds.clock).field("latch", s.leds.latch).end_object();
+  w.key("leds").begin_object().field("data", s.leds.data).field("clock", s.leds.clock).field("latch", s.leds.latch).field("led9", s.leds.led9).field("led10", s.leds.led10).end_object();
   w.key("web").begin_object().field("mode", to_text(s.web)).end_object();
   w.key("ble").begin_object().field("mode", to_text(s.ble)).end_object();
   w.key("ui").begin_object().field("language", s.language).end_object();

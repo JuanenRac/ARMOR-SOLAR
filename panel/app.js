@@ -421,7 +421,7 @@ function claimedGpios(exceptPath) {
   const add = (path, gpio) => { if (path !== exceptPath && gpio >= 0) used.add(gpio); };
   if (S.cfg.profile === "mux") {
     S.cfg.mux.forEach((g, i) => { const base = "mux." + i + "."; add(base + "tx", g.tx); add(base + "rx", g.rx); add(base + "s0", g.s0); add(base + "s1", g.s1); });
-    add("leds.data", S.cfg.leds.data); add("leds.clock", S.cfg.leds.clock); add("leds.latch", S.cfg.leds.latch);
+    add("leds.data", S.cfg.leds.data); add("leds.clock", S.cfg.leds.clock); add("leds.latch", S.cfg.leds.latch); add("leds.led9", S.cfg.leds.led9); add("leds.led10", S.cfg.leds.led10);
   } else {
     S.cfg.ports.forEach((p, i) => { if (p.enabled) { const base = "ports." + i + "."; add(base + "rx", p.rx); add(base + "tx", p.tx); add(base + "de", p.de); } });
   }
@@ -506,6 +506,8 @@ function boardCard() {
       el("h3", {}, t("ledsTitle")),
       el("div", { class: "row" }, field("ledData", "leds.data", { type: "select", number: true, options: pinOptions(S.cfg.leds.data, true, "leds.data") }),
         field("ledClock", "leds.clock", { type: "select", number: true, options: pinOptions(S.cfg.leds.clock, true, "leds.clock") }), field("ledLatch", "leds.latch", { type: "select", number: true, options: pinOptions(S.cfg.leds.latch, true, "leds.latch") })),
+      el("div", { class: "row" }, field("ledNine", "leds.led9", { type: "select", number: true, options: pinOptions(S.cfg.leds.led9, true, "leds.led9") }),
+        field("ledTen", "leds.led10", { type: "select", number: true, options: pinOptions(S.cfg.leds.led10, true, "leds.led10") })),
       el("p", { class: "hint" }, t("ledsHint"))] : null);
 }
 
