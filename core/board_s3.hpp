@@ -16,7 +16,7 @@
 // Only on s3-wifi: GPIO 43 and 44 are UART0's pins to the CH343P of the "USB to serial" socket (usable, a cable in that socket drives them) and GPIO 48
 // drives the on-board RGB LED (usable, the LED flickers).
 // Only on s3-eth: GPIO 9..14 are the W5500 (reset, interrupt, MOSI, MISO, clock, chip select) and 8 is wired to the camera connector: never offered;
-// GPIO 4..7 are the microSD socket: they do not reach the header of the board, so a base board cannot wire them (offered only for a board that does).
+// GPIO 4..7 are the microSD socket: usable when no card is used.
 // Nothing here has been checked on a board.
 #pragma once
 #include <array>
